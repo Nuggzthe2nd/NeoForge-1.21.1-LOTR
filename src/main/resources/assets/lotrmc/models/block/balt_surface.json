@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/grass_block",
+  "textures": {
+    "bottom": "lotrmc:block/balt",
+    "top": "lotrmc:block/balt_surface_top",
+    "side": "lotrmc:block/balt_surface_side",
+    "overlay": "lotrmc:block/balt_surface_side"
+  }
+}

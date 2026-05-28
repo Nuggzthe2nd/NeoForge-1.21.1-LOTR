@@ -1,0 +1,13 @@
+{
+  "block.lotrmc.balt_surface": "Balt Surface",
+  "block.lotrmc.balt": "Balt",
+  "block.lotrmc.balgundt": "Balgundt",
+
+  "lotrmc.configuration.title": "Lord of the Blocks Configs",
+  "lotrmc.configuration.section.lotrmc.common.toml": "Lord of the Blocks Configs",
+  "lotrmc.configuration.section.lotrmc.common.toml.title": "Lord of the Blocks Configs",
+  "lotrmc.configuration.items": "Item List",
+  "lotrmc.configuration.logDirtBlock": "Log Dirt Block",
+  "lotrmc.configuration.magicNumberIntroduction": "Magic Number Text",
+  "lotrmc.configuration.magicNumber": "Magic Number"
+}
