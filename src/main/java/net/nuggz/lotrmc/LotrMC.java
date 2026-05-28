@@ -1,6 +1,7 @@
 package net.nuggz.lotrmc;
 
 import net.nuggz.lotrmc.registry.ModBlocks;
+import net.nuggz.lotrmc.registry.ModEntities;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -43,6 +44,7 @@ public class LotrMC {
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
         ModBlocks.BLOCKS.register(modEventBus);
+        ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);
     }
 
