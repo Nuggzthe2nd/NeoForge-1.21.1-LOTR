@@ -38,9 +38,6 @@ public class AltarValidator {
      * Scans the altar and returns a DiagnosticResult containing:
      *   - One line per check (pass/fail) for chat display
      *   - Whether the overall structure is valid
-     *
-     * Never short-circuits — always checks everything so the player
-     * sees the full picture in one right-click.
      */
     public static DiagnosticResult diagnose(Level level, BlockPos center) {
         List<String> lines = new ArrayList<>();
