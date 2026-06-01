@@ -5,7 +5,7 @@
 			"loop": true,
 			"animation_length": 1,
 			"bones": {
-				"LegL": {
+				"right_leg": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -24,7 +24,7 @@
 						}
 					}
 				},
-				"LegR": {
+				"left_leg": {
 					"rotation": {
 						"0.0": {
 							"vector": [10, 0, 0]
@@ -43,7 +43,7 @@
 						}
 					}
 				},
-				"ArmL": {
+				"right_arm": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -62,7 +62,7 @@
 						}
 					}
 				},
-				"ArmR": {
+				"left_arm": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -81,7 +81,7 @@
 						}
 					}
 				},
-				"Head": {
+				"head": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -100,7 +100,7 @@
 						}
 					}
 				},
-				"Chest": {
+				"body": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -144,7 +144,7 @@
 			"loop": true,
 			"animation_length": 1.5,
 			"bones": {
-				"Head": {
+				"head": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -165,7 +165,7 @@
 		"attack": {
 			"animation_length": 0.5,
 			"bones": {
-				"LegL": {
+				"right_leg": {
 					"rotation": {
 						"0.0": {
 							"vector": [7.4929, -0.3262, 2.4786]
@@ -178,7 +178,7 @@
 						}
 					}
 				},
-				"LegR": {
+				"left_leg": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, -5]
@@ -188,7 +188,7 @@
 						}
 					}
 				},
-				"ArmL": {
+				"right_arm": {
 					"rotation": {
 						"0.0": {
 							"vector": [-53.6396, 38.8449, 24.7849]
@@ -201,7 +201,7 @@
 						}
 					}
 				},
-				"ArmR": {
+				"left_arm": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]
@@ -211,7 +211,7 @@
 						}
 					}
 				},
-				"Chest": {
+				"body": {
 					"rotation": {
 						"0.0": {
 							"vector": [0, 0, 0]

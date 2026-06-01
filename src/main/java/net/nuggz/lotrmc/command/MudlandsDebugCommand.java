@@ -2,6 +2,8 @@ package net.nuggz.lotrmc.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.nuggz.lotrmc.ritual.RitualEffects;
+import net.nuggz.lotrmc.ritual.RitualState;
 import net.nuggz.lotrmc.world.MudlandsTerrainReplacer;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
 import net.nuggz.lotrmc.worlddata.MudlandsManager;
@@ -28,6 +30,10 @@ import net.minecraft.world.level.ChunkPos;
  *   /mudlands status               — print all current SavedData to chat
  *   /mudlands reset                — wipe all mudlands data (nuclear option)
  *   /mudlands convert              — convert just the chunk you're standing in
+ *   /mudlands ritual skip <days>   — advance ritual by <days> days instantly (1-4)
+ *   /mudlands ritual start         — force-start ritual at your position (no altar needed)
+ *   /mudlands ritual status        — print ritual SavedData to chat
+ *   /mudlands ritual reset         — cancel ritual and clear cooldown
  */
 public class MudlandsDebugCommand {
 
@@ -71,6 +77,20 @@ public class MudlandsDebugCommand {
                         // /mudlands convert
                         .then(Commands.literal("convert")
                                 .executes(ctx -> cmdConvert(ctx.getSource())))
+
+                        // /mudlands ritual skip <days> | start | status | reset
+                        .then(Commands.literal("ritual")
+                                .then(Commands.literal("skip")
+                                        .then(Commands.argument("days", IntegerArgumentType.integer(1, 4))
+                                                .executes(ctx -> cmdRitualSkip(
+                                                        ctx.getSource(),
+                                                        IntegerArgumentType.getInteger(ctx, "days")))))
+                                .then(Commands.literal("start")
+                                        .executes(ctx -> cmdRitualStart(ctx.getSource())))
+                                .then(Commands.literal("status")
+                                        .executes(ctx -> cmdRitualStatus(ctx.getSource())))
+                                .then(Commands.literal("reset")
+                                        .executes(ctx -> cmdRitualReset(ctx.getSource()))))
         );
     }
 
@@ -248,8 +268,8 @@ public class MudlandsDebugCommand {
         ServerLevel level = src.getLevel();
         MudlandsChunkData data = MudlandsChunkData.get(level);
 
-        // Remove all lieutenant data — copy first to avoid ConcurrentModificationException
-        for (var lt : new java.util.ArrayList<>(data.getLieutenants())) {
+        // Remove all lieutenant data
+        for (var lt : data.getLieutenants()) {
             data.removeLieutenant(lt);
         }
         data.stopCollapse();
@@ -280,9 +300,142 @@ public class MudlandsDebugCommand {
     }
 
     // -------------------------------------------------------------------------
+    // Ritual subcommands
+    // -------------------------------------------------------------------------
+
+    /**
+     * Force-advance the ritual by the given number of days.
+     * Fires each day's storm event in sequence so you can verify them one at a time.
+     * Example: if you're on day 0, `/mudlands ritual skip 2` fires day 0, day 1, day 2.
+     */
+    private static int cmdRitualSkip(CommandSourceStack src, int days) {
+        ServerLevel level = src.getLevel();
+        RitualState ritual = RitualState.get(level);
+
+        if (!ritual.isRitualActive()) {
+            src.sendFailure(Component.literal(
+                    "No ritual active. Run /mudlands ritual start first."));
+            return 0;
+        }
+
+        int currentDay = ritual.getRitualDay(level);
+        int targetDay  = Math.min(currentDay + days, 4);
+
+        if (currentDay >= 4) {
+            src.sendFailure(Component.literal(
+                    "Ritual is already on day 4 (final day). "
+                            + "The next tick will complete it, or run /mudlands ritual skip 1 again."));
+            return 0;
+        }
+
+        // Fire storm effects for days up to (but not including) day 4.
+        // Day 4 is handled by completeRitual in the tick handler — pre-firing it
+        // would mark it as done and prevent the tick from ever calling completeRitual.
+        for (int d = currentDay; d < targetDay; d++) {
+            if (ritual.shouldFireStorm(d)) {
+                RitualEffects.applyDayStorm(level, ritual.getAltarCenter(), d);
+                ritual.markStormFired(d);
+                final int firedDay = d;
+                src.sendSuccess(() -> Component.literal(
+                        "§8[Ritual] Fired day " + firedDay + " storm event."), false);
+            }
+        }
+
+        // Rewind start day so the tick handler sees targetDay as the current ritual day
+        long currentGameDay = level.getDayTime() / 24000L;
+        ritual.debugSetStartDay(currentGameDay - targetDay);
+
+        if (targetDay >= 4) {
+            src.sendSuccess(() -> Component.literal(
+                    "§4[Ritual] Day 4 set — the ritual will complete on the next server tick."), true);
+        } else {
+            src.sendSuccess(() -> Component.literal(
+                    "§8[Ritual] Advanced from day " + currentDay + " to day "
+                            + targetDay + ". Storm events fired."), true);
+        }
+
+        return 1;
+    }
+
+    /**
+     * Force-start the ritual at your current position without needing the altar.
+     * Useful for testing storm escalation in a fresh world before you've
+     * built the altar structure.
+     */
+    private static int cmdRitualStart(CommandSourceStack src) {
+        if (!(src.getEntity() instanceof ServerPlayer player)) {
+            src.sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        ServerLevel level = src.getLevel();
+        RitualState ritual = RitualState.get(level);
+
+        if (ritual.isRitualActive()) {
+            src.sendFailure(Component.literal(
+                    "Ritual already active. Use /mudlands ritual reset to cancel it first."));
+            return 0;
+        }
+
+        // Bypass cooldown and altar validation for debug
+        ritual.debugClearCooldown();
+        ritual.startRitual(player.getUUID(), player.blockPosition(), level);
+        RitualEffects.playStartEffects(level, player.blockPosition());
+
+        src.sendSuccess(() -> Component.literal(
+                "§8[Ritual] Force-started at " + player.blockPosition()
+                        + ". Use /mudlands ritual skip <days> to advance."), true);
+        return 1;
+    }
+
+    private static int cmdRitualStatus(CommandSourceStack src) {
+        ServerLevel level = src.getLevel();
+        RitualState ritual = RitualState.get(level);
+
+        StringBuilder sb = new StringBuilder("=== Ritual Status ===\n");
+        sb.append("Active: ").append(ritual.isRitualActive()).append("\n");
+
+        if (ritual.isRitualActive()) {
+            sb.append("Ritualist: ").append(ritual.getRitualistUUID()).append("\n");
+            sb.append("Altar center: ").append(ritual.getAltarCenter()).append("\n");
+            sb.append("Started day: ").append(ritual.getRitualStartDay()).append("\n");
+            sb.append("Current ritual day: ").append(ritual.getRitualDay(level))
+                    .append("/4\n");
+        }
+
+        sb.append("On cooldown: ").append(ritual.isOnCooldown(level));
+        if (ritual.isOnCooldown(level)) {
+            sb.append(" (").append(ritual.getCooldownDaysRemaining(level))
+                    .append(" days remaining)");
+        }
+
+        String out = sb.toString();
+        src.sendSuccess(() -> Component.literal(out), false);
+        return 1;
+    }
+
+    private static int cmdRitualReset(CommandSourceStack src) {
+        ServerLevel level = src.getLevel();
+        RitualState ritual = RitualState.get(level);
+
+        ritual.debugClearCooldown();
+        if (ritual.isRitualActive()) {
+            ritual.failRitual(level);    // sets cooldown — immediately cleared below
+            ritual.debugClearCooldown(); // clear the cooldown that failRitual just set
+        }
+
+        // Clear weather so the storm doesn't linger
+        level.setWeatherParameters(6000, 0, false, false);
+
+        src.sendSuccess(() -> Component.literal(
+                "§8[Ritual] Ritual cancelled and cooldown cleared. "
+                        + "Weather reset. Ready for a fresh /mudlands ritual start."), true);
+        return 1;
+    }
+
+    // -------------------------------------------------------------------------
 
     private static int countOwnedChunks(MudlandsChunkData data, java.util.UUID owner) {
-        // Count by iterating — fine for debug, not for hot paths
         int count = 0;
         for (int dx = -data.getSauronRadius(); dx <= data.getSauronRadius(); dx++) {
             for (int dz = -data.getSauronRadius(); dz <= data.getSauronRadius(); dz++) {
