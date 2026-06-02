@@ -1,5 +1,6 @@
 package net.nuggz.lotrmc;
 
+import net.nuggz.lotrmc.registry.ModBlockEntities;
 import net.nuggz.lotrmc.registry.ModBlocks;
 import net.nuggz.lotrmc.registry.ModEntities;
 import net.nuggz.lotrmc.registry.ModItems;
@@ -45,9 +46,11 @@ public class LotrMC {
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
 
         ModBlocks.BLOCKS.register(modEventBus);
-        ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
+        ModBlockEntities.BLOCKS.register(modEventBus);
+        ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
+        ModEntities.ENTITY_TYPES.register(modEventBus);
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {

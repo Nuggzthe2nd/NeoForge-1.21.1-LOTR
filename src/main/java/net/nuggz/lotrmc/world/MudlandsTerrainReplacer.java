@@ -1,5 +1,7 @@
 package net.nuggz.lotrmc.world;
 
+import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
+import net.nuggz.lotrmc.registry.ModBlockEntities;
 import net.nuggz.lotrmc.registry.ModBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -121,14 +123,9 @@ public class MudlandsTerrainReplacer {
     // Mudpit placement
     // -------------------------------------------------------------------------
 
-    // How many chunks between mudpits. A value of 3 means roughly 1-in-9 chunks
-    // gets a pit attempt (adjusted by terrain flatness check).
     private static final int MUDPIT_CHUNK_INTERVAL = 3;
-    // Min number of flat surface candidates required before we even try
+    // Min flat surface blocks required before a pit attempt is made
     private static final int MIN_FLAT_CANDIDATES = 40;
-    // Mudpit dimensions
-    private static final int PIT_RADIUS = 3; // 7x7 pit
-    private static final int PIT_DEPTH  = 4;
 
     private static void tryPlaceMudpit(ServerLevel level, ChunkPos chunkPos,
                                        List<BlockPos> surfaceCandidates) {
@@ -150,35 +147,66 @@ public class MudlandsTerrainReplacer {
 
     /**
      * Carves a mudpit at the given center position.
-     * The pit is a rounded rectangle depression filled with your mud block,
-     * with liquid mud (still water tinted later via biome effects) at the bottom.
      *
-     * TODO: replace Blocks.WATER with your custom liquid once you have one.
+     * Rolls a PitSize, uses its carve radius for the visual pit shape,
+     * and places a MudpitCoreBlock on the floor with capacity and radius baked in.
+     * TODO: replace Blocks.WATER with your bubhosh liquid once you have one.
      */
     public static void carveMudpit(ServerLevel level, BlockPos center) {
-        for (int dx = -PIT_RADIUS; dx <= PIT_RADIUS; dx++) {
-            for (int dz = -PIT_RADIUS; dz <= PIT_RADIUS; dz++) {
-                // Rounded corners — skip the very corners of the bounding box
-                if (Math.abs(dx) == PIT_RADIUS && Math.abs(dz) == PIT_RADIUS) continue;
+        carveMudpit(level, center, null);
+    }
 
-                for (int dy = 0; dy > -PIT_DEPTH; dy--) {
+    public static void carveMudpit(ServerLevel level, BlockPos center,
+                                   MudpitBlockEntity.PitSize forced) {
+        java.util.Random rng = new java.util.Random(center.asLong() ^ level.getSeed());
+
+        MudpitBlockEntity.PitSize size = (forced != null)
+                ? forced
+                : MudpitBlockEntity.PitSize.roll(rng);
+
+        int radius   = size.carveRadius;
+        int capacity = size.rollCapacity(rng);
+        int depth    = 4;
+
+        BlockPos floorCenter = null;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                // Rounded corners
+                if (Math.abs(dx) == radius && Math.abs(dz) == radius) continue;
+
+                for (int dy = 0; dy > -depth; dy--) {
                     BlockPos pos = center.offset(dx, dy, dz);
 
-                    if (dy == -(PIT_DEPTH - 1)) {
-                        // Bottom layer — solid mud floor
-                        level.setBlock(pos, ModBlocks.BALT.get().defaultBlockState(), SET_BLOCK_FLAGS);
+                    if (dy == -(depth - 1)) {
+                        // Bottom layer — balt floor
+                        if (dx == 0 && dz == 0) {
+                            // Place core block at dead center of the floor
+                            level.setBlock(pos,
+                                    ModBlockEntities.MUDPIT_CORE_BLOCK.get().defaultBlockState(),
+                                    SET_BLOCK_FLAGS);
+                            floorCenter = pos;
+                        } else {
+                            level.setBlock(pos,
+                                    ModBlocks.BALT.get().defaultBlockState(), SET_BLOCK_FLAGS);
+                        }
                     } else if (dy < -1) {
-                        // Middle layers — liquid mud
+                        // Middle layers — bubhosh (water placeholder)
                         level.setBlock(pos, Blocks.WATER.defaultBlockState(), SET_BLOCK_FLAGS);
                     } else {
-                        // Top layer and rim — air to open up the pit
                         level.setBlock(pos, Blocks.AIR.defaultBlockState(), SET_BLOCK_FLAGS);
                     }
                 }
 
-                // Also clear the block directly above the rim so it looks open
-                level.setBlock(center.offset(dx, 1, dz), Blocks.AIR.defaultBlockState(), SET_BLOCK_FLAGS);
+                level.setBlock(center.offset(dx, 1, dz),
+                        Blocks.AIR.defaultBlockState(), SET_BLOCK_FLAGS);
             }
+        }
+
+        // Initialize the block entity with its fixed capacity and radius
+        if (floorCenter != null
+                && level.getBlockEntity(floorCenter) instanceof MudpitBlockEntity pit) {
+            pit.initFromCarve(capacity, radius);
         }
     }
 

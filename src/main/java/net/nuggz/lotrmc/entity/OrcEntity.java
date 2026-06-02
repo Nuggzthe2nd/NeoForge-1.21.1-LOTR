@@ -1,5 +1,6 @@
 package net.nuggz.lotrmc.entity;
 
+import net.minecraft.core.BlockPos;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
@@ -83,6 +84,17 @@ public class OrcEntity extends Monster implements GeoEntity {
                 .add(Attributes.FOLLOW_RANGE, 32.0)
                 .add(Attributes.ARMOR, 2.0);
     }
+
+    // Field
+    private BlockPos pitPos = null;
+
+    // Setter/getter
+    public void setPitPos(BlockPos pos) { this.pitPos = pos; }
+    public BlockPos getPitPos() { return pitPos; }
+
+    // Save/load in your NBT methods:
+    // save: if (pitPos != null) tag.putLong("PitPos", pitPos.asLong());
+    // load: if (tag.contains("PitPos")) pitPos = BlockPos.of(tag.getLong("PitPos"));
 
     // -------------------------------------------------------------------------
     // AI goals
