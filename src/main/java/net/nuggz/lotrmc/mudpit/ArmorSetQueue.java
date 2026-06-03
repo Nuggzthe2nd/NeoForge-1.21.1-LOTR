@@ -128,10 +128,28 @@ public class ArmorSetQueue {
     /**
      * Pop the next ArmorSet for a spawning orc.
      * Returns an empty ArmorSet if the queue is empty (orc spawns unarmored).
+     * Also removes the consumed items from the per-material buckets so reassemble()
+     * sees the correct remaining inventory on the next addItem() call.
      */
     public ArmorSet popNext() {
         ArmorSet set = assembledQueue.poll();
-        return set != null ? set : new ArmorSet();
+        if (set == null) return new ArmorSet();
+
+        if (!set.helmet.isEmpty())     drainBucket(helmetsByMaterial, set.helmet);
+        if (!set.chestplate.isEmpty()) drainBucket(chestsByMaterial,  set.chestplate);
+        if (!set.leggings.isEmpty())   drainBucket(legsByMaterial,    set.leggings);
+        if (!set.boots.isEmpty())      drainBucket(bootsByMaterial,   set.boots);
+        if (!set.weapon.isEmpty())     unmatchedWeapons.remove(set.weapon);
+
+        return set;
+    }
+
+    /** Removes the first item from the bucket corresponding to the given stack's material. */
+    private void drainBucket(Map<String, Deque<ItemStack>> map, ItemStack stack) {
+        String key = getMaterialKey(stack);
+        if (key == null) return;
+        Deque<ItemStack> deque = map.get(key);
+        if (deque != null) deque.poll();
     }
 
     public boolean hasAny() {
@@ -170,10 +188,12 @@ public class ArmorSetQueue {
         List<ArmorSet> sets = new ArrayList<>();
 
         for (String material : allMaterials) {
-            Deque<ItemStack> helmets = helmetsByMaterial.getOrDefault(material, new ArrayDeque<>());
-            Deque<ItemStack> chests  = chestsByMaterial.getOrDefault(material, new ArrayDeque<>());
-            Deque<ItemStack> legs    = legsByMaterial.getOrDefault(material, new ArrayDeque<>());
-            Deque<ItemStack> boots   = bootsByMaterial.getOrDefault(material, new ArrayDeque<>());
+            // Use copies so the source buckets are never drained by reassemble().
+            // Buckets are only consumed by popNext() → drainBucket().
+            Deque<ItemStack> helmets = new ArrayDeque<>(helmetsByMaterial.getOrDefault(material, new ArrayDeque<>()));
+            Deque<ItemStack> chests  = new ArrayDeque<>(chestsByMaterial.getOrDefault(material,  new ArrayDeque<>()));
+            Deque<ItemStack> legs    = new ArrayDeque<>(legsByMaterial.getOrDefault(material,    new ArrayDeque<>()));
+            Deque<ItemStack> boots   = new ArrayDeque<>(bootsByMaterial.getOrDefault(material,   new ArrayDeque<>()));
 
             // Keep assembling sets until all armor slots for this material are empty
             while (!helmets.isEmpty() || !chests.isEmpty() || !legs.isEmpty() || !boots.isEmpty()) {
@@ -186,7 +206,7 @@ public class ArmorSetQueue {
             }
         }
 
-        // Assign unmatched weapons to sets that have no weapon yet
+        // Assign unmatched weapons to sets that have no weapon yet (copy — same reason as above)
         Deque<ItemStack> unmatched = new ArrayDeque<>(unmatchedWeapons);
         for (ArmorSet set : sets) {
             if (set.weapon.isEmpty() && !unmatched.isEmpty()) {
