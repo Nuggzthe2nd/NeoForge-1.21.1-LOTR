@@ -11,7 +11,9 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.*;
 import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
+import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -113,6 +115,10 @@ public class OrcEntity extends Monster implements GeoEntity {
         targetSelector.addGoal(1, new HurtByTargetGoal(this));
         targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(
                 this, Player.class, true, this::shouldAttackPlayer));
+        targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(
+                this, Villager.class, false));
+        targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(
+                this, IronGolem.class, true));
     }
 
     // -------------------------------------------------------------------------
