@@ -46,7 +46,7 @@ public class MudpitCoreBlock extends BaseEntityBlock {
         super(BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_BLACK)
                 .strength(5.0f, 1200.0f) // hard to mine, high blast resistance
-                .lightLevel(state -> 2)   // subtle glow — enough to be visible in dark pit
+                .lightLevel(state -> 15)
                 .noOcclusion()
         );
     }
