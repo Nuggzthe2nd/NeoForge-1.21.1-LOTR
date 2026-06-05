@@ -2,7 +2,10 @@
   "block.lotrmc.balt_surface": "Balt Surface",
   "block.lotrmc.balt": "Balt",
   "block.lotrmc.balgundt": "Balgundt",
+  "block.lotrmc.mudpit_core": "Mudpit Core",
   "item.lotrmc.nethercrown": "Nether Crown",
+  "item.lotrmc.brand": "Brand",
+  "entity.lotrmc.orc": "Orc",
 
   "lotrmc.configuration.title": "Lord of the Blocks Configs",
   "lotrmc.configuration.section.lotrmc.common.toml": "Lord of the Blocks Configs",

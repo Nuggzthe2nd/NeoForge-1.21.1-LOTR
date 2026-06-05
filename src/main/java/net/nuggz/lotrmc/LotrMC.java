@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.level.block.Blocks;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -19,6 +20,7 @@ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.nuggz.lotrmc.network.ModNetwork;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(LotrMC.MODID)
@@ -33,13 +35,10 @@ public class LotrMC {
     public LotrMC(IEventBus modEventBus, ModContainer modContainer) {
         // Register the commonSetup method for modloading
         modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(ModNetwork::register);
 
-        // Register ourselves for server and other game events we are interested in.
-        // Note that this is necessary if and only if we want *this* class (LotrMC) to respond directly to events.
-        // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
         NeoForge.EVENT_BUS.register(this);
 
-        // Register the item to a creative tab
         modEventBus.addListener(this::addCreative);
 
         // Register our mod's ModConfigSpec so that FML can create and load the config file for us
@@ -49,6 +48,7 @@ public class LotrMC {
         ModBlocks.ITEMS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
         ModBlockEntities.BLOCKS.register(modEventBus);
+        ModBlockEntities.ITEMS.register(modEventBus);
         ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
     }
@@ -66,9 +66,21 @@ public class LotrMC {
         Config.ITEM_STRINGS.get().forEach((item) -> LOGGER.info("ITEM >> {}", item));
     }
 
-    // Add the example block item to the building blocks tab
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
-
+        if (event.getTabKey().equals(CreativeModeTabs.COMBAT)) {
+            event.accept(ModItems.NETHERCROWN.get());
+        }
+        if (event.getTabKey().equals(CreativeModeTabs.TOOLS_AND_UTILITIES)) {
+            event.accept(ModItems.BRAND.get());
+        }
+        if (event.getTabKey().equals(CreativeModeTabs.NATURAL_BLOCKS)) {
+            event.accept(ModBlocks.BALT_SURFACE.get());
+            event.accept(ModBlocks.BALT.get());
+            event.accept(ModBlocks.BALGUNDT.get());
+        }
+        if (event.getTabKey().equals(CreativeModeTabs.FUNCTIONAL_BLOCKS)) {
+            event.accept(ModBlockEntities.MUDPIT_CORE_BLOCK.get());
+        }
     }
 
     // You can use SubscribeEvent and let the Event Bus discover methods to call

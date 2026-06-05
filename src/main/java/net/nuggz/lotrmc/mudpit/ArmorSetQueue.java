@@ -1,14 +1,12 @@
 package net.nuggz.lotrmc.mudpit;
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ArmorItem;
-import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.item.TieredItem;
 
 import java.util.*;
 
@@ -54,7 +52,7 @@ public class ArmorSetQueue {
 
         public boolean isEmpty() { return pieceCount() == 0; }
 
-        public CompoundTag save(HolderLookup.Provider provider) {
+        public CompoundTag save(net.minecraft.core.HolderLookup.Provider provider) {
             CompoundTag tag = new CompoundTag();
             if (!helmet.isEmpty())     tag.put("Helmet",     helmet.save(provider));
             if (!chestplate.isEmpty()) tag.put("Chest",      chestplate.save(provider));
@@ -64,7 +62,7 @@ public class ArmorSetQueue {
             return tag;
         }
 
-        public static ArmorSet load(HolderLookup.Provider provider, CompoundTag tag) {
+        public static ArmorSet load(net.minecraft.core.HolderLookup.Provider provider, CompoundTag tag) {
             ArmorSet set = new ArmorSet();
             if (tag.contains("Helmet"))  set.helmet     = ItemStack.parseOptional(provider, tag.getCompound("Helmet"));
             if (tag.contains("Chest"))   set.chestplate = ItemStack.parseOptional(provider, tag.getCompound("Chest"));
@@ -85,7 +83,8 @@ public class ArmorSetQueue {
     private final Map<String, Deque<ItemStack>> chestsByMaterial      = new LinkedHashMap<>();
     private final Map<String, Deque<ItemStack>> legsByMaterial        = new LinkedHashMap<>();
     private final Map<String, Deque<ItemStack>> bootsByMaterial       = new LinkedHashMap<>();
-    // All weapons go here; reassemble() pairs them with armor sets that have no weapon
+    private final Map<String, Deque<ItemStack>> weaponsByMaterial     = new LinkedHashMap<>();
+    // Weapons with no matching armor material go here
     private final Deque<ItemStack> unmatchedWeapons = new ArrayDeque<>();
 
     // Pre-assembled queue — rebuilt whenever items are added
@@ -103,9 +102,10 @@ public class ArmorSetQueue {
     public boolean addItem(ItemStack stack) {
         if (stack.isEmpty()) return false;
 
+        String material = getMaterialKey(stack);
+        if (material == null) return false; // not armor or weapon
+
         if (stack.getItem() instanceof ArmorItem armor) {
-            String material = getMaterialKey(stack);
-            if (material == null) return false;
             Map<String, Deque<ItemStack>> slotMap = switch (armor.getType()) {
                 case HELMET     -> helmetsByMaterial;
                 case CHESTPLATE -> chestsByMaterial;
@@ -116,7 +116,7 @@ public class ArmorSetQueue {
             if (slotMap == null) return false;
             slotMap.computeIfAbsent(material, k -> new ArrayDeque<>()).add(stack.copyWithCount(1));
         } else if (isWeapon(stack)) {
-            unmatchedWeapons.add(stack.copyWithCount(1));
+            weaponsByMaterial.computeIfAbsent(material, k -> new ArrayDeque<>()).add(stack.copyWithCount(1));
         } else {
             return false;
         }
@@ -128,28 +128,10 @@ public class ArmorSetQueue {
     /**
      * Pop the next ArmorSet for a spawning orc.
      * Returns an empty ArmorSet if the queue is empty (orc spawns unarmored).
-     * Also removes the consumed items from the per-material buckets so reassemble()
-     * sees the correct remaining inventory on the next addItem() call.
      */
     public ArmorSet popNext() {
         ArmorSet set = assembledQueue.poll();
-        if (set == null) return new ArmorSet();
-
-        if (!set.helmet.isEmpty())     drainBucket(helmetsByMaterial, set.helmet);
-        if (!set.chestplate.isEmpty()) drainBucket(chestsByMaterial,  set.chestplate);
-        if (!set.leggings.isEmpty())   drainBucket(legsByMaterial,    set.leggings);
-        if (!set.boots.isEmpty())      drainBucket(bootsByMaterial,   set.boots);
-        if (!set.weapon.isEmpty())     unmatchedWeapons.remove(set.weapon);
-
-        return set;
-    }
-
-    /** Removes the first item from the bucket corresponding to the given stack's material. */
-    private void drainBucket(Map<String, Deque<ItemStack>> map, ItemStack stack) {
-        String key = getMaterialKey(stack);
-        if (key == null) return;
-        Deque<ItemStack> deque = map.get(key);
-        if (deque != null) deque.poll();
+        return set != null ? set : new ArmorSet();
     }
 
     public boolean hasAny() {
@@ -165,64 +147,68 @@ public class ArmorSetQueue {
     // -------------------------------------------------------------------------
 
     /**
-     * Rebuilds the assembled queue from current bucket contents.
-     * Called whenever an item is added.
+     * Drains the current bucket contents into new ArmorSets and merges them
+     * with any sets already sitting in the assembled queue.
      *
-     * Algorithm:
-     *   For each material group (in insertion order):
-     *     While any slot for that material has items:
-     *       Pop one from each available slot → one ArmorSet
-     *   Then assign unmatched weapons to sets that have no weapon yet.
-     *   Sort: complete sets first, then by piece count descending.
+     * The buckets act as a staging area: items land there via addItem(), then
+     * reassemble() drains them. Previously assembled sets that haven't been
+     * popped yet are preserved — without this, every addItem() call would wipe
+     * whatever was already queued.
      */
     private void reassemble() {
+        // Keep sets that were assembled from earlier addItem() calls
+        List<ArmorSet> preserved = new ArrayList<>(assembledQueue);
         assembledQueue.clear();
 
-        // Collect all material keys across armor slot maps
+        // Collect material keys that still have items waiting in the buckets
         Set<String> allMaterials = new LinkedHashSet<>();
         allMaterials.addAll(helmetsByMaterial.keySet());
         allMaterials.addAll(chestsByMaterial.keySet());
         allMaterials.addAll(legsByMaterial.keySet());
         allMaterials.addAll(bootsByMaterial.keySet());
+        allMaterials.addAll(weaponsByMaterial.keySet());
 
-        List<ArmorSet> sets = new ArrayList<>();
+        List<ArmorSet> fresh = new ArrayList<>();
 
         for (String material : allMaterials) {
-            // Use copies so the source buckets are never drained by reassemble().
-            // Buckets are only consumed by popNext() → drainBucket().
-            Deque<ItemStack> helmets = new ArrayDeque<>(helmetsByMaterial.getOrDefault(material, new ArrayDeque<>()));
-            Deque<ItemStack> chests  = new ArrayDeque<>(chestsByMaterial.getOrDefault(material,  new ArrayDeque<>()));
-            Deque<ItemStack> legs    = new ArrayDeque<>(legsByMaterial.getOrDefault(material,    new ArrayDeque<>()));
-            Deque<ItemStack> boots   = new ArrayDeque<>(bootsByMaterial.getOrDefault(material,   new ArrayDeque<>()));
+            Deque<ItemStack> helmets  = helmetsByMaterial.getOrDefault(material, new ArrayDeque<>());
+            Deque<ItemStack> chests   = chestsByMaterial.getOrDefault(material, new ArrayDeque<>());
+            Deque<ItemStack> legs     = legsByMaterial.getOrDefault(material, new ArrayDeque<>());
+            Deque<ItemStack> boots    = bootsByMaterial.getOrDefault(material, new ArrayDeque<>());
+            Deque<ItemStack> weapons  = weaponsByMaterial.getOrDefault(material, new ArrayDeque<>());
 
-            // Keep assembling sets until all armor slots for this material are empty
-            while (!helmets.isEmpty() || !chests.isEmpty() || !legs.isEmpty() || !boots.isEmpty()) {
+            while (!helmets.isEmpty() || !chests.isEmpty()
+                    || !legs.isEmpty() || !boots.isEmpty() || !weapons.isEmpty()) {
                 ArmorSet set = new ArmorSet();
-                if (!helmets.isEmpty()) set.helmet     = helmets.poll();
-                if (!chests.isEmpty())  set.chestplate = chests.poll();
-                if (!legs.isEmpty())    set.leggings   = legs.poll();
-                if (!boots.isEmpty())   set.boots      = boots.poll();
-                sets.add(set);
+                if (!helmets.isEmpty())  set.helmet     = helmets.poll();
+                if (!chests.isEmpty())   set.chestplate = chests.poll();
+                if (!legs.isEmpty())     set.leggings   = legs.poll();
+                if (!boots.isEmpty())    set.boots      = boots.poll();
+                if (!weapons.isEmpty())  set.weapon     = weapons.poll();
+                fresh.add(set);
             }
         }
 
-        // Assign unmatched weapons to sets that have no weapon yet (copy — same reason as above)
+        // Assign unmatched weapons to any set (preserved or fresh) that has none
         Deque<ItemStack> unmatched = new ArrayDeque<>(unmatchedWeapons);
-        for (ArmorSet set : sets) {
-            if (set.weapon.isEmpty() && !unmatched.isEmpty()) {
-                set.weapon = unmatched.poll();
-            }
+        for (ArmorSet set : preserved) {
+            if (set.weapon.isEmpty() && !unmatched.isEmpty()) set.weapon = unmatched.poll();
         }
-        // Any remaining unmatched weapons become weapon-only sets
+        for (ArmorSet set : fresh) {
+            if (set.weapon.isEmpty() && !unmatched.isEmpty()) set.weapon = unmatched.poll();
+        }
         while (!unmatched.isEmpty()) {
             ArmorSet set = new ArmorSet();
             set.weapon = unmatched.poll();
-            sets.add(set);
+            fresh.add(set);
         }
 
-        // Sort: most pieces first (complete sets bubble to front)
-        sets.sort(Comparator.comparingInt(ArmorSet::pieceCount).reversed());
-        assembledQueue.addAll(sets);
+        // Merge and sort: most pieces first
+        List<ArmorSet> all = new ArrayList<>(preserved.size() + fresh.size());
+        all.addAll(preserved);
+        all.addAll(fresh);
+        all.sort(Comparator.comparingInt(ArmorSet::pieceCount).reversed());
+        assembledQueue.addAll(all);
     }
 
     // -------------------------------------------------------------------------
@@ -239,9 +225,11 @@ public class ArmorSetQueue {
      */
     private static String getMaterialKey(ItemStack stack) {
         if (stack.getItem() instanceof ArmorItem armor) {
-            return armor.getMaterial().unwrapKey()
-                    .map(k -> k.location().toString())
-                    .orElse(null);
+            // ArmorMaterial is a Holder in 1.21 — use the registered name
+            return armor.getMaterial().getRegisteredName();
+        }
+        if (isWeapon(stack) && stack.getItem() instanceof TieredItem tiered) {
+            return tiered.getTier().toString();
         }
         return null;
     }
@@ -256,55 +244,23 @@ public class ArmorSetQueue {
     // NBT serialization
     // -------------------------------------------------------------------------
 
-    public CompoundTag save(HolderLookup.Provider provider) {
+    // After reassemble() the buckets are always empty — the assembled queue IS the
+    // persistent state, so we save/load that directly.
+    public CompoundTag save(net.minecraft.core.HolderLookup.Provider provider) {
         CompoundTag tag = new CompoundTag();
-
-        // Save each armor slot map
-        tag.put("Helmets", saveSlotMap(provider, helmetsByMaterial));
-        tag.put("Chests",  saveSlotMap(provider, chestsByMaterial));
-        tag.put("Legs",    saveSlotMap(provider, legsByMaterial));
-        tag.put("Boots",   saveSlotMap(provider, bootsByMaterial));
-
-        // Save unmatched weapons
-        ListTag unmatchedTag = new ListTag();
-        for (ItemStack s : unmatchedWeapons) unmatchedTag.add(s.save(provider));
-        tag.put("Unmatched", unmatchedTag);
-
+        ListTag setList = new ListTag();
+        for (ArmorSet set : assembledQueue) setList.add(set.save(provider));
+        tag.put("Sets", setList);
         return tag;
     }
 
-    public static ArmorSetQueue load(HolderLookup.Provider provider, CompoundTag tag) {
+    public static ArmorSetQueue load(net.minecraft.core.HolderLookup.Provider provider, CompoundTag tag) {
         ArmorSetQueue q = new ArmorSetQueue();
-        loadSlotMap(provider, tag.getCompound("Helmets"), q.helmetsByMaterial);
-        loadSlotMap(provider, tag.getCompound("Chests"),  q.chestsByMaterial);
-        loadSlotMap(provider, tag.getCompound("Legs"),    q.legsByMaterial);
-        loadSlotMap(provider, tag.getCompound("Boots"),   q.bootsByMaterial);
-
-        ListTag unmatchedTag = tag.getList("Unmatched", Tag.TAG_COMPOUND);
-        for (int i = 0; i < unmatchedTag.size(); i++) {
-            q.unmatchedWeapons.add(ItemStack.parseOptional(provider, unmatchedTag.getCompound(i)));
+        ListTag setList = tag.getList("Sets", Tag.TAG_COMPOUND);
+        for (int i = 0; i < setList.size(); i++) {
+            ArmorSet set = ArmorSet.load(provider, setList.getCompound(i));
+            if (!set.isEmpty()) q.assembledQueue.add(set);
         }
-
-        q.reassemble();
         return q;
-    }
-
-    private static CompoundTag saveSlotMap(HolderLookup.Provider provider, Map<String, Deque<ItemStack>> map) {
-        CompoundTag tag = new CompoundTag();
-        for (Map.Entry<String, Deque<ItemStack>> entry : map.entrySet()) {
-            ListTag list = new ListTag();
-            for (ItemStack s : entry.getValue()) list.add(s.save(provider));
-            tag.put(entry.getKey(), list);
-        }
-        return tag;
-    }
-
-    private static void loadSlotMap(HolderLookup.Provider provider, CompoundTag tag, Map<String, Deque<ItemStack>> map) {
-        for (String key : tag.getAllKeys()) {
-            ListTag list = tag.getList(key, Tag.TAG_COMPOUND);
-            Deque<ItemStack> deque = new ArrayDeque<>();
-            for (int i = 0; i < list.size(); i++) deque.add(ItemStack.parseOptional(provider, list.getCompound(i)));
-            map.put(key, deque);
-        }
     }
 }

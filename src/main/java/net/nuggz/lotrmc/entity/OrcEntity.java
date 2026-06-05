@@ -1,11 +1,13 @@
 package net.nuggz.lotrmc.entity;
 
-import net.minecraft.core.BlockPos;
+import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.*;
@@ -15,25 +17,16 @@ import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.*;
 import software.bernie.geckolib.util.GeckoLibUtil;
 
+import javax.annotation.Nullable;
 import java.util.UUID;
 
-/**
- * Base orc entity. All orc variants (grunt, archer, berserker, etc.) extend this.
- *
- * Faction logic:
- *   - Never attacks Sauron (the designated player UUID in MudlandsChunkData)
- *   - Never attacks lieutenants (UUIDs in MudlandsChunkData.getLieutenants())
- *   - Attacks all other players and non-orc mobs
- *
- * Animation controllers are minimal stubs — swap in your real animation
- * names once you have your Blockbench animations ready.
- */
 public class OrcEntity extends Monster implements GeoEntity {
 
     // -------------------------------------------------------------------------
@@ -42,7 +35,6 @@ public class OrcEntity extends Monster implements GeoEntity {
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
-    // Animation resource keys — must match the names in your .animation.json
     private static final RawAnimation ANIM_IDLE   = RawAnimation.begin().thenLoop("idle");
     private static final RawAnimation ANIM_WALK   = RawAnimation.begin().thenLoop("walk");
     private static final RawAnimation ANIM_ATTACK = RawAnimation.begin().thenPlay("attack");
@@ -50,21 +42,16 @@ public class OrcEntity extends Monster implements GeoEntity {
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar registrar) {
         registrar.add(new AnimationController<>(this, "movement", 4, state -> {
-            if (state.isMoving()) {
-                return state.setAndContinue(ANIM_WALK);
-            }
+            if (state.isMoving()) return state.setAndContinue(ANIM_WALK);
             return state.setAndContinue(ANIM_IDLE);
         }));
 
-        registrar.add(new AnimationController<>(this, "attack", 2, state ->
-                PlayState.STOP) // attack is triggered imperatively in performAttack()
-        );
+        registrar.add(new AnimationController<>(this, "attack", 2, state -> PlayState.STOP)
+                .triggerableAnim("attack_trigger", ANIM_ATTACK));
     }
 
     @Override
-    public AnimatableInstanceCache getAnimatableInstanceCache() {
-        return cache;
-    }
+    public AnimatableInstanceCache getAnimatableInstanceCache() { return cache; }
 
     // -------------------------------------------------------------------------
     // Construction + attributes
@@ -74,10 +61,6 @@ public class OrcEntity extends Monster implements GeoEntity {
         super(type, level);
     }
 
-    /**
-     * Base attribute set. Variants override this by calling
-     * AttributeSupplier.Builder on top of these values.
-     */
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
@@ -87,16 +70,99 @@ public class OrcEntity extends Monster implements GeoEntity {
                 .add(Attributes.ARMOR, 2.0);
     }
 
-    // Field
-    private BlockPos pitPos = null;
+    // -------------------------------------------------------------------------
+    // Pit affiliation
+    // -------------------------------------------------------------------------
 
-    // Setter/getter
+    @Nullable private BlockPos pitPos = null;
+
     public void setPitPos(BlockPos pos) { this.pitPos = pos; }
-    public BlockPos getPitPos() { return pitPos; }
 
-    // Save/load in your NBT methods:
-    // save: if (pitPos != null) tag.putLong("PitPos", pitPos.asLong());
-    // load: if (tag.contains("PitPos")) pitPos = BlockPos.of(tag.getLong("PitPos"));
+    @Nullable public BlockPos getPitPos() { return pitPos; }
+
+    // -------------------------------------------------------------------------
+    // Leader state
+    // -------------------------------------------------------------------------
+
+    private boolean isLeader = false;
+    @Nullable private OrcLeaderData leaderData = null;
+
+    public boolean isLeader() { return isLeader; }
+
+    @Nullable public OrcLeaderData getLeaderData() { return leaderData; }
+
+    public void applyBranding(String name) {
+        this.isLeader   = true;
+        this.leaderData = OrcLeaderData.roll(random);
+        this.setCustomName(net.minecraft.network.chat.Component.literal(name));
+        this.setCustomNameVisible(true);
+    }
+
+    public void clearLeaderState() {
+        this.isLeader   = false;
+        this.leaderData = null;
+        this.setCustomName(null);
+        this.setCustomNameVisible(false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Scar system
+    // -------------------------------------------------------------------------
+
+    private static final int MAX_SCARS          = 10;
+    private static final double SCAR_HEALTH_BONUS = 2.0;
+    private static final double SCAR_DAMAGE_BONUS = 0.3;
+
+    private int scarCount = 0;
+
+    public int getScarCount() { return scarCount; }
+
+    public int addScars(int count) {
+        int added = Math.min(count, MAX_SCARS - scarCount);
+        if (added <= 0) return 0;
+        for (int i = 0; i < added; i++) applyScarModifiers();
+        scarCount += added;
+        return added;
+    }
+
+    private void applyScarModifiers() {
+        getAttribute(Attributes.MAX_HEALTH).addPermanentModifier(
+                new AttributeModifier(
+                        ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_health_" + scarCount),
+                        SCAR_HEALTH_BONUS, AttributeModifier.Operation.ADD_VALUE));
+
+        getAttribute(Attributes.ATTACK_DAMAGE).addPermanentModifier(
+                new AttributeModifier(
+                        ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_damage_" + scarCount),
+                        SCAR_DAMAGE_BONUS, AttributeModifier.Operation.ADD_VALUE));
+
+        this.setHealth(this.getMaxHealth());
+    }
+
+    // -------------------------------------------------------------------------
+    // Death — notify pit to clear leader slot
+    // -------------------------------------------------------------------------
+
+    @Override
+    public void die(net.minecraft.world.damagesource.DamageSource source) {
+        super.die(source);
+        if (isLeader && pitPos != null && level() instanceof ServerLevel serverLevel) {
+            if (serverLevel.getBlockEntity(pitPos) instanceof MudpitBlockEntity pit) {
+                pit.clearLeader();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Attack animation
+    // -------------------------------------------------------------------------
+
+    @Override
+    public boolean doHurtTarget(net.minecraft.world.entity.Entity target) {
+        boolean result = super.doHurtTarget(target);
+        if (result) triggerAnim("attack", "attack_trigger");
+        return result;
+    }
 
     // -------------------------------------------------------------------------
     // AI goals
@@ -104,14 +170,12 @@ public class OrcEntity extends Monster implements GeoEntity {
 
     @Override
     protected void registerGoals() {
-        // Movement
         goalSelector.addGoal(0, new FloatGoal(this));
         goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.0, false));
         goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.8));
         goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0f));
         goalSelector.addGoal(7, new RandomLookAroundGoal(this));
 
-        // Targeting — order matters; more specific checks go first
         targetSelector.addGoal(1, new HurtByTargetGoal(this));
         targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(
                 this, Player.class, true, this::shouldAttackPlayer));
@@ -125,26 +189,17 @@ public class OrcEntity extends Monster implements GeoEntity {
     // Faction checks
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns true if this orc should attack the given player.
-     * False for Sauron and all current lieutenants.
-     */
     private boolean shouldAttackPlayer(LivingEntity target) {
         if (!(target instanceof Player player)) return true;
         if (level() instanceof ServerLevel serverLevel) {
             MudlandsChunkData data = MudlandsChunkData.get(serverLevel);
             UUID playerId = player.getUUID();
-
             if (playerId.equals(data.getSauronUUID())) return false;
             if (data.isLieutenant(playerId)) return false;
         }
         return true;
     }
 
-    /**
-     * Also called by the hurt-by retaliation goal — prevents orcs from
-     * retaliating if a Sauron/lieutenant accidentally hits them.
-     */
     @Override
     public boolean canAttack(LivingEntity target) {
         if (!super.canAttack(target)) return false;
@@ -155,5 +210,27 @@ public class OrcEntity extends Monster implements GeoEntity {
             if (data.isLieutenant(playerId)) return false;
         }
         return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // NBT
+    // -------------------------------------------------------------------------
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        if (pitPos != null) tag.putLong("PitPos", pitPos.asLong());
+        tag.putBoolean("IsLeader", isLeader);
+        tag.putInt("ScarCount", scarCount);
+        if (leaderData != null) tag.put("LeaderData", leaderData.save());
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        if (tag.contains("PitPos"))     pitPos    = BlockPos.of(tag.getLong("PitPos"));
+        isLeader  = tag.getBoolean("IsLeader");
+        scarCount = tag.getInt("ScarCount");
+        if (tag.contains("LeaderData")) leaderData = OrcLeaderData.load(tag.getCompound("LeaderData"));
     }
 }

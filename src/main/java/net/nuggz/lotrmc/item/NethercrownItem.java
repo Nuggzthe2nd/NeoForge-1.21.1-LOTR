@@ -7,4 +7,5 @@ public class NethercrownItem extends Item {
     public NethercrownItem(Properties properties) {
         super(properties);
     }
+
 }
