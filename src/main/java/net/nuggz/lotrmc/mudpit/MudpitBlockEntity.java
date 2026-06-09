@@ -130,6 +130,11 @@ public class MudpitBlockEntity extends BlockEntity {
             pit.scanForItems(level, pos);
         }
 
+        // Sync liquid blocks every 20 ticks — cheap since it only acts on change
+        if (tick % 20 == 0) {
+            pit.syncLiquidBlocks(level, pos);
+        }
+
         if (pit.gestating) {
             pit.gestationAge++;
             if (pit.gestationAge >= pit.gestationTarget) {
@@ -189,10 +194,19 @@ public class MudpitBlockEntity extends BlockEntity {
         int unitCost = getUnitCost();
         if (biomass < unitCost) return;
 
+        // Cap total living orcs at 2x the max batch size.
+        // Max batch = capacity / unitCost, so cap = (capacity / unitCost) * 2.
+        int maxPopulation = getMaxPopulation();
+        if (trackedOrcs.size() >= maxPopulation) return;
+
+        // How many can we spawn without exceeding the population cap
+        int headroom = maxPopulation - trackedOrcs.size();
+
         int unitsToSpawn    = 0;
         int costAccumulated = 0;
         while (costAccumulated + unitCost <= capacity
-                && costAccumulated + unitCost <= biomass) {
+                && costAccumulated + unitCost <= biomass
+                && unitsToSpawn < headroom) {
             unitsToSpawn++;
             costAccumulated += unitCost;
         }
@@ -263,6 +277,51 @@ public class MudpitBlockEntity extends BlockEntity {
     }
 
     // -------------------------------------------------------------------------
+    // Liquid block sync (water → air at cap, air → water below cap)
+    // -------------------------------------------------------------------------
+
+    // Track last known state so we only update blocks when something changed
+    private boolean lastAtCap = false;
+
+    /**
+     * Sets the pit's liquid blocks to water (below cap) or air (at/above cap).
+     * Only scans and updates blocks when the cap state actually changes,
+     * so there's no per-tick block scanning overhead in steady state.
+     */
+    private void syncLiquidBlocks(ServerLevel level, BlockPos corePos) {
+        boolean atCap = trackedOrcs.size() >= getMaxPopulation();
+        if (atCap == lastAtCap) return; // no change, skip
+        lastAtCap = atCap;
+
+        net.minecraft.world.level.block.state.BlockState target = atCap
+                ? net.minecraft.world.level.block.Blocks.AIR.defaultBlockState()
+                : net.minecraft.world.level.block.Blocks.WATER.defaultBlockState();
+
+        int depth = 4;
+        int radius = pitRadius;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (Math.abs(dx) == radius && Math.abs(dz) == radius) continue;
+
+                // Water layers are ABOVE the core block (core is at floor, water at core+1..core+(depth-3))
+                for (int dy = 1; dy <= depth - 3; dy++) {
+                    BlockPos pos = corePos.offset(dx, dy, dz);
+                    net.minecraft.world.level.block.state.BlockState current =
+                            level.getBlockState(pos);
+
+                    // Only replace water↔air, don't touch balt or other blocks
+                    if (atCap && current.is(net.minecraft.world.level.block.Blocks.WATER)) {
+                        level.setBlock(pos, target, 3);
+                    } else if (!atCap && current.is(net.minecraft.world.level.block.Blocks.AIR)) {
+                        level.setBlock(pos, target, 3);
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Leader management
     // -------------------------------------------------------------------------
 
@@ -300,8 +359,15 @@ public class MudpitBlockEntity extends BlockEntity {
     }
 
     // Orc tracking
-    public void trackOrc(UUID uuid)   { trackedOrcs.add(uuid);    setChanged(); }
-    public void untrackOrc(UUID uuid) { trackedOrcs.remove(uuid); setChanged(); }
+    public void trackOrc(UUID uuid) {
+        trackedOrcs.add(uuid);
+        setChanged();
+        // Liquid update handled on next tick via serverTick
+    }
+    public void untrackOrc(UUID uuid) {
+        trackedOrcs.remove(uuid);
+        setChanged();
+    }
     public Set<UUID> getTrackedOrcUUIDs() { return Collections.unmodifiableSet(trackedOrcs); }
 
     // Raid state
@@ -309,8 +375,8 @@ public class MudpitBlockEntity extends BlockEntity {
     public void setRaiding(boolean val) { this.raiding = val; setChanged(); }
 
     // Default order
-    public String getDefaultOrder()          { return defaultOrder; }
-    public void setDefaultOrder(String order){ this.defaultOrder = order; setChanged(); }
+    public String getDefaultOrder()           { return defaultOrder; }
+    public void setDefaultOrder(String order) { this.defaultOrder = order; setChanged(); }
 
     public void setSeed(ResourceLocation seedType)  { this.seedType = seedType; setChanged(); }
     public void clearSeed()                         { this.seedType = null;     setChanged(); }
@@ -320,6 +386,10 @@ public class MudpitBlockEntity extends BlockEntity {
     public int getBiomass()                         { return biomass; }
     public boolean isGestating()                    { return gestating; }
     public int getPitRadius()                       { return pitRadius; }
+
+    public int getMaxPopulation() {
+        return (capacity / getUnitCost()) * 2;
+    }
 
     public int getGestationPercent() {
         if (!gestating || gestationTarget == 0) return 0;
@@ -353,7 +423,6 @@ public class MudpitBlockEntity extends BlockEntity {
         if (leaderUUID != null) tag.putUUID("LeaderUUID",   leaderUUID);
         tag.putBoolean("Raiding",      raiding);
         tag.putString("DefaultOrder",  defaultOrder);
-        // Save tracked orc UUIDs
         net.minecraft.nbt.ListTag orcList = new net.minecraft.nbt.ListTag();
         for (UUID uuid : trackedOrcs) {
             net.minecraft.nbt.CompoundTag orcTag = new net.minecraft.nbt.CompoundTag();
@@ -361,6 +430,7 @@ public class MudpitBlockEntity extends BlockEntity {
             orcList.add(orcTag);
         }
         tag.put("TrackedOrcs", orcList);
+        tag.putBoolean("LastAtCap", lastAtCap);
         tag.put("ArmorQueue", armorQueue.save(provider));
     }
 
@@ -374,8 +444,8 @@ public class MudpitBlockEntity extends BlockEntity {
         gestationAge     = tag.getInt("GestationAge");
         gestationTarget  = tag.getInt("GestationTarget");
         pendingBatchCost = tag.getInt("PendingCost");
-        seedType     = tag.contains("SeedType")   ? ResourceLocation.parse(tag.getString("SeedType")) : null;
-        leaderUUID   = tag.hasUUID("LeaderUUID")  ? tag.getUUID("LeaderUUID") : null;
+        seedType     = tag.contains("SeedType")    ? ResourceLocation.parse(tag.getString("SeedType")) : null;
+        leaderUUID   = tag.hasUUID("LeaderUUID")   ? tag.getUUID("LeaderUUID") : null;
         raiding      = tag.getBoolean("Raiding");
         defaultOrder = tag.contains("DefaultOrder") ? tag.getString("DefaultOrder") : "Guarding";
         net.minecraft.nbt.ListTag orcList = tag.getList("TrackedOrcs", net.minecraft.nbt.Tag.TAG_COMPOUND);
@@ -383,6 +453,7 @@ public class MudpitBlockEntity extends BlockEntity {
         for (int i = 0; i < orcList.size(); i++) {
             trackedOrcs.add(orcList.getCompound(i).getUUID("UUID"));
         }
-        armorQueue   = ArmorSetQueue.load(provider, tag.getCompound("ArmorQueue"));
+        lastAtCap  = tag.getBoolean("LastAtCap");
+        armorQueue = ArmorSetQueue.load(provider, tag.getCompound("ArmorQueue"));
     }
 }

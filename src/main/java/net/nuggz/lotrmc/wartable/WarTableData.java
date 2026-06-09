@@ -39,6 +39,7 @@ public class WarTableData {
         public final int statTactics;
         public final int statPresence;
 
+        public final int maxPopulation;
         public final List<OrcEntry> orcs;
 
         public PitEntry(int pitIndex, int capacity, int biomass,
@@ -46,6 +47,7 @@ public class WarTableData {
                         boolean isRaiding, String defaultOrder,
                         String leaderName, int statStrength,
                         int statTactics, int statPresence,
+                        int maxPopulation,
                         List<OrcEntry> orcs) {
             this.pitIndex         = pitIndex;
             this.capacity         = capacity;
@@ -58,6 +60,7 @@ public class WarTableData {
             this.statStrength     = statStrength;
             this.statTactics      = statTactics;
             this.statPresence     = statPresence;
+            this.maxPopulation    = maxPopulation;
             this.orcs             = orcs;
         }
 
@@ -106,6 +109,7 @@ public class WarTableData {
                 buf.writeInt(pit.statPresence);
             }
 
+            buf.writeInt(pit.maxPopulation);
             buf.writeInt(pit.orcs.size());
             for (OrcEntry orc : pit.orcs) {
                 buf.writeUUID(orc.uuid);
@@ -138,6 +142,7 @@ public class WarTableData {
                 pre        = buf.readInt();
             }
 
+            int maxPopulation = buf.readInt();
             int orcCount = buf.readInt();
             List<OrcEntry> orcs = new ArrayList<>();
             for (int j = 0; j < orcCount; j++) {
@@ -150,7 +155,7 @@ public class WarTableData {
 
             pits.add(new PitEntry(pitIndex, capacity, biomass,
                     isGestating, gestationPercent, isRaiding,
-                    defaultOrder, leaderName, str, tac, pre, orcs));
+                    defaultOrder, leaderName, str, tac, pre, maxPopulation, orcs));
         }
 
         return new WarTableData(pits);

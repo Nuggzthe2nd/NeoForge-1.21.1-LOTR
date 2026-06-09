@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -31,6 +32,7 @@ import javax.annotation.Nullable;
  *
  * When destroyed:
  *   - The block entity is lost, spawned orcs from this pit lose affiliation
+ *   - The force-loaded chunk ticket is released
  *   - No collapse mechanic — the pit just becomes inert balt floor
  */
 public class MudpitCoreBlock extends BaseEntityBlock {
@@ -45,7 +47,7 @@ public class MudpitCoreBlock extends BaseEntityBlock {
     public MudpitCoreBlock() {
         super(BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_BLACK)
-                .strength(5.0f, 1200.0f) // hard to mine, high blast resistance
+                .strength(5.0f, 1200.0f)
                 .lightLevel(state -> 15)
                 .noOcclusion()
         );
@@ -64,14 +66,16 @@ public class MudpitCoreBlock extends BaseEntityBlock {
     @Nullable
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(
-            net.minecraft.world.level.Level level, BlockState state,
-            BlockEntityType<T> type) {
-        // Only tick on server
+            Level level, BlockState state, BlockEntityType<T> type) {
         if (level.isClientSide()) return null;
         return createTickerHelper(type, ModBlockEntities.MUDPIT.get(),
                 (lvl, pos, st, be) ->
                         MudpitBlockEntity.serverTick((ServerLevel) lvl, pos, st, be));
     }
+
+    // -------------------------------------------------------------------------
+    // Right-click — debug status display
+    // -------------------------------------------------------------------------
 
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos,
@@ -82,7 +86,7 @@ public class MudpitCoreBlock extends BaseEntityBlock {
 
         player.sendSystemMessage(Component.literal(
                 "§6Biomass: §f" + pit.getBiomass()
-                + "  §6Capacity: §f" + pit.getCapacity()));
+                        + "  §6Capacity: §f" + pit.getCapacity()));
 
         if (pit.isGestating()) {
             int ticksLeft = pit.getGestationTicksRemaining();
@@ -93,16 +97,33 @@ public class MudpitCoreBlock extends BaseEntityBlock {
                     : seconds + "s";
             player.sendSystemMessage(Component.literal(
                     "§6Gestating: §f" + pit.getPendingUnits() + " orc(s)"
-                    + "  §6Progress: §f" + pit.getGestationPercent() + "% §7(" + timeStr + " remaining)"));
+                            + "  §6Progress: §f" + pit.getGestationPercent()
+                            + "% §7(" + timeStr + " remaining)"));
         } else {
-            player.sendSystemMessage(Component.literal("§7Idle — throw meat to begin gestation."));
+            player.sendSystemMessage(Component.literal(
+                    "§7Idle — throw meat to begin gestation."));
         }
 
         return InteractionResult.SUCCESS;
     }
 
+    // -------------------------------------------------------------------------
+    // Destruction — release force-loaded chunk
+    // -------------------------------------------------------------------------
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos,
+                         BlockState newState, boolean movedByPiston) {
+        if (!state.is(newState.getBlock()) && level instanceof ServerLevel serverLevel) {
+            // Release the force-load ticket so the chunk can unload normally
+            ChunkPos chunkPos = new ChunkPos(pos);
+            serverLevel.setChunkForced(chunkPos.x, chunkPos.z, false);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+
     @Override
     public RenderShape getRenderShape(BlockState state) {
-        return RenderShape.MODEL; // use a normal block model — make it visually distinct
+        return RenderShape.MODEL;
     }
 }

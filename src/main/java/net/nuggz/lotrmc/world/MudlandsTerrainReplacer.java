@@ -88,7 +88,6 @@ public class MudlandsTerrainReplacer {
         if (state.is(Blocks.DIRT))              return ModBlocks.BALT.get().defaultBlockState();
         if (state.is(Blocks.COARSE_DIRT))       return ModBlocks.BALT.get().defaultBlockState();
         if (state.is(Blocks.ROOTED_DIRT))       return ModBlocks.BALT.get().defaultBlockState();
-        // vanilla mud → your mud (keeps things consistent)
         if (state.is(Blocks.MUD))               return ModBlocks.BALT.get().defaultBlockState();
 
         // --- Deep subsurface ---
@@ -129,18 +128,14 @@ public class MudlandsTerrainReplacer {
 
     private static void tryPlaceMudpit(ServerLevel level, ChunkPos chunkPos,
                                        List<BlockPos> surfaceCandidates) {
-        // Use chunk coords as a deterministic seed so placement is consistent
-        // across server restarts without needing to store pit positions separately.
         long seed = chunkPos.toLong() ^ level.getSeed();
         Random rng = new Random(seed);
 
-        // Only place a pit in roughly 1 in MUDPIT_CHUNK_INTERVAL^2 chunks
         if (Math.abs(chunkPos.x) % MUDPIT_CHUNK_INTERVAL != 0
                 || Math.abs(chunkPos.z) % MUDPIT_CHUNK_INTERVAL != 0) return;
 
         if (surfaceCandidates.size() < MIN_FLAT_CANDIDATES) return;
 
-        // Pick a random surface position from the candidates as the pit center
         BlockPos center = surfaceCandidates.get(rng.nextInt(surfaceCandidates.size()));
         carveMudpit(level, center);
     }
@@ -203,10 +198,14 @@ public class MudlandsTerrainReplacer {
             }
         }
 
-        // Initialize the block entity with its fixed capacity and radius
+        // Initialize the block entity with its fixed capacity and radius.
+        // Also force-load the pit's chunk so gestation always ticks regardless
+        // of player proximity — one chunk per pit, minimal performance cost.
         if (floorCenter != null
                 && level.getBlockEntity(floorCenter) instanceof MudpitBlockEntity pit) {
             pit.initFromCarve(capacity, radius);
+            ChunkPos pitChunk = new ChunkPos(floorCenter);
+            level.setChunkForced(pitChunk.x, pitChunk.z, true);
         }
     }
 
@@ -250,7 +249,7 @@ public class MudlandsTerrainReplacer {
     private static BlockState getMudlandsRevert(BlockState state) {
         if (state.is(ModBlocks.BALT_SURFACE.get())) return Blocks.DIRT.defaultBlockState();
         if (state.is(ModBlocks.BALT.get()))         return Blocks.DIRT.defaultBlockState();
-        if (state.is(ModBlocks.BALGUNDT.get()))    return Blocks.STONE.defaultBlockState();
+        if (state.is(ModBlocks.BALGUNDT.get()))     return Blocks.STONE.defaultBlockState();
         return null;
     }
 }

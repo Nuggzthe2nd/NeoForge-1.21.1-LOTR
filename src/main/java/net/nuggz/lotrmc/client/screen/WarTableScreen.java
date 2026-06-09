@@ -133,17 +133,6 @@ public class WarTableScreen extends Screen {
         }
 
         super.render(graphics, mouseX, mouseY, delta);
-
-        // Tooltip drawn last — after buttons — so its background is on top
-        if (expandedPit != null && expandedPit.hasLeader()) {
-            int contentX = getPanelX() + 6;
-            int headerY  = getPanelY() + 22;
-            int nameW    = font.width(expandedPit.leaderName);
-            if (mouseX >= contentX && mouseX <= contentX + nameW
-                    && mouseY >= headerY + 3 && mouseY <= headerY + 14) {
-                drawLeaderTooltip(graphics, expandedPit, mouseX, mouseY);
-            }
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -220,7 +209,7 @@ public class WarTableScreen extends Screen {
                 textY, 0xFFFFFF);
 
         // Orc count / capacity
-        g.drawString(font, "§7" + pit.orcs.size() + "§8/§7" + pit.capacity + " orcs",
+        g.drawString(font, "§7" + pit.orcs.size() + "§8/§7" + pit.maxPopulation + " orcs",
                 textX, textY, 0xFFFFFF);
 
         // Default order
@@ -306,6 +295,14 @@ public class WarTableScreen extends Screen {
         g.drawString(font, "§8" + selectedCount + " selected for raid",
                 contentX, panelY + PANEL_HEIGHT - 10, 0x555555);
 
+        // Tooltip: hover over leader name to see stats
+        if (pit.hasLeader()) {
+            int nameW = font.width(pit.leaderName);
+            if (mouseX >= contentX && mouseX <= contentX + nameW
+                    && mouseY >= headerY + 3 && mouseY <= headerY + 14) {
+                drawLeaderTooltip(g, pit, mouseX, mouseY);
+            }
+        }
     }
 
     private void drawOrcRow(GuiGraphics g, OrcEntry orc,
@@ -483,17 +480,13 @@ public class WarTableScreen extends Screen {
         int ttX = Math.min(mx + 4, width - ttW - 4);
         int ttY = my - ttH - 4;
 
-        g.pose().pushPose();
-        g.pose().translate(0, 0, 400);
-
+        // Background + border
         g.fill(ttX, ttY, ttX + ttW, ttY + ttH, 0xEE0A0A0A);
         g.renderOutline(ttX, ttY, ttW, ttH, 0xFF4A1A1A);
 
         for (int i = 0; i < lines.length; i++) {
             g.drawString(font, lines[i], ttX + 4, ttY + 3 + i * 10, 0xFFFFFF);
         }
-
-        g.pose().popPose();
     }
 
     private static String statBar(int value) {

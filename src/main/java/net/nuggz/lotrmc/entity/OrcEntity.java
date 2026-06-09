@@ -153,6 +153,17 @@ public class OrcEntity extends Monster implements GeoEntity {
     }
 
     // -------------------------------------------------------------------------
+    // Despawn prevention
+    // -------------------------------------------------------------------------
+
+    @Override
+    public boolean removeWhenFarAway(double distanceToClosestPlayer) {
+        // Orcs with pit affiliation never despawn — only unaffiliated ones
+        // (e.g. spawned via debug command) clean up naturally
+        return pitPos == null;
+    }
+
+    // -------------------------------------------------------------------------
     // Attack animation
     // -------------------------------------------------------------------------
 

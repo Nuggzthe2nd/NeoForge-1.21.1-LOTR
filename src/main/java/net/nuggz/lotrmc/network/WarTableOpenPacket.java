@@ -123,6 +123,7 @@ public record WarTableOpenPacket(WarTableData data) implements CustomPacketPaylo
                 pit.isRaiding(),
                 pit.getDefaultOrder(),
                 leaderName, str, tac, pre,
+                pit.getMaxPopulation(),
                 orcs);
     }
 
