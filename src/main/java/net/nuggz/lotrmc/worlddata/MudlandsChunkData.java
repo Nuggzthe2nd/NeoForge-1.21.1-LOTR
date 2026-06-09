@@ -1,5 +1,6 @@
 package net.nuggz.lotrmc.worlddata;
 
+import net.nuggz.lotrmc.LotrMC;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -8,7 +9,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.saveddata.SavedData;
-import net.nuggz.lotrmc.LotrMC;
 
 import java.util.*;
 
@@ -128,6 +128,11 @@ public class MudlandsChunkData extends SavedData {
 
     public UUID getChunkOwner(ChunkPos pos) {
         return convertedChunks.get(pos.toLong());
+    }
+
+    /** Returns all converted chunk positions as packed longs for iteration. */
+    public java.util.Set<Long> getAllConvertedChunkPositions() {
+        return java.util.Collections.unmodifiableSet(convertedChunks.keySet());
     }
 
     /**

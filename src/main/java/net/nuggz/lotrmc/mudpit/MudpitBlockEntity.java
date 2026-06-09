@@ -17,6 +17,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 import javax.annotation.Nullable;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.List;
 import java.util.UUID;
 
@@ -91,6 +94,15 @@ public class MudpitBlockEntity extends BlockEntity {
 
     // Leader
     @Nullable private UUID leaderUUID = null;
+
+    // Orc tracking — UUIDs of all living orcs spawned from this pit
+    private final Set<UUID> trackedOrcs = new HashSet<>();
+
+    // Raid state
+    private boolean raiding = false;
+
+    // Default order — "Guarding" or "Patrolling"
+    private String defaultOrder = "Guarding";
 
     // -------------------------------------------------------------------------
     // Construction
@@ -223,6 +235,7 @@ public class MudpitBlockEntity extends BlockEntity {
             // Set pit affiliation BEFORE adding to world so it's present
             // during any initialization hooks fired by addFreshEntity
             orc.setPitPos(pos);
+            trackOrc(orc.getUUID());
 
             ArmorSetQueue.ArmorSet set = armorQueue.popNext();
             if (!set.helmet.isEmpty())     orc.setItemSlot(EquipmentSlot.HEAD,     set.helmet);
@@ -256,6 +269,16 @@ public class MudpitBlockEntity extends BlockEntity {
     public boolean hasLeader()            { return leaderUUID != null; }
     @Nullable public UUID getLeaderUUID() { return leaderUUID; }
 
+    /** Returns true only if the leader UUID is set AND the orc entity is still alive.
+     *  Clears the stale UUID if the entity has despawned or been removed without dying. */
+    public boolean hasLivingLeader(ServerLevel level) {
+        if (leaderUUID == null) return false;
+        net.minecraft.world.entity.Entity e = level.getEntity(leaderUUID);
+        if (e instanceof OrcEntity orc && orc.isLeader() && !orc.isDeadOrDying()) return true;
+        clearLeader();
+        return false;
+    }
+
     public void setLeader(UUID uuid) {
         this.leaderUUID = uuid;
         setChanged();
@@ -275,6 +298,19 @@ public class MudpitBlockEntity extends BlockEntity {
         // TODO: return cost based on seed type
         return COST_BASIC_ORC;
     }
+
+    // Orc tracking
+    public void trackOrc(UUID uuid)   { trackedOrcs.add(uuid);    setChanged(); }
+    public void untrackOrc(UUID uuid) { trackedOrcs.remove(uuid); setChanged(); }
+    public Set<UUID> getTrackedOrcUUIDs() { return Collections.unmodifiableSet(trackedOrcs); }
+
+    // Raid state
+    public boolean isRaiding()          { return raiding; }
+    public void setRaiding(boolean val) { this.raiding = val; setChanged(); }
+
+    // Default order
+    public String getDefaultOrder()          { return defaultOrder; }
+    public void setDefaultOrder(String order){ this.defaultOrder = order; setChanged(); }
 
     public void setSeed(ResourceLocation seedType)  { this.seedType = seedType; setChanged(); }
     public void clearSeed()                         { this.seedType = null;     setChanged(); }
@@ -315,6 +351,16 @@ public class MudpitBlockEntity extends BlockEntity {
         tag.putInt("PendingCost",     pendingBatchCost);
         if (seedType   != null) tag.putString("SeedType",   seedType.toString());
         if (leaderUUID != null) tag.putUUID("LeaderUUID",   leaderUUID);
+        tag.putBoolean("Raiding",      raiding);
+        tag.putString("DefaultOrder",  defaultOrder);
+        // Save tracked orc UUIDs
+        net.minecraft.nbt.ListTag orcList = new net.minecraft.nbt.ListTag();
+        for (UUID uuid : trackedOrcs) {
+            net.minecraft.nbt.CompoundTag orcTag = new net.minecraft.nbt.CompoundTag();
+            orcTag.putUUID("UUID", uuid);
+            orcList.add(orcTag);
+        }
+        tag.put("TrackedOrcs", orcList);
         tag.put("ArmorQueue", armorQueue.save(provider));
     }
 
@@ -328,8 +374,15 @@ public class MudpitBlockEntity extends BlockEntity {
         gestationAge     = tag.getInt("GestationAge");
         gestationTarget  = tag.getInt("GestationTarget");
         pendingBatchCost = tag.getInt("PendingCost");
-        seedType   = tag.contains("SeedType")   ? ResourceLocation.parse(tag.getString("SeedType")) : null;
-        leaderUUID = tag.hasUUID("LeaderUUID")  ? tag.getUUID("LeaderUUID") : null;
-        armorQueue = ArmorSetQueue.load(provider, tag.getCompound("ArmorQueue"));
+        seedType     = tag.contains("SeedType")   ? ResourceLocation.parse(tag.getString("SeedType")) : null;
+        leaderUUID   = tag.hasUUID("LeaderUUID")  ? tag.getUUID("LeaderUUID") : null;
+        raiding      = tag.getBoolean("Raiding");
+        defaultOrder = tag.contains("DefaultOrder") ? tag.getString("DefaultOrder") : "Guarding";
+        net.minecraft.nbt.ListTag orcList = tag.getList("TrackedOrcs", net.minecraft.nbt.Tag.TAG_COMPOUND);
+        trackedOrcs.clear();
+        for (int i = 0; i < orcList.size(); i++) {
+            trackedOrcs.add(orcList.getCompound(i).getUUID("UUID"));
+        }
+        armorQueue   = ArmorSetQueue.load(provider, tag.getCompound("ArmorQueue"));
     }
 }

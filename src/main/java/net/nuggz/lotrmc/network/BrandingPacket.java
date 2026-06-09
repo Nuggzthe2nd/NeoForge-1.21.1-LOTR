@@ -89,7 +89,7 @@ public record BrandingPacket(UUID orcUUID, String name) implements CustomPacketP
                 return;
             }
 
-            if (pit.hasLeader()) {
+            if (pit.hasLivingLeader(level)) {
                 player.sendSystemMessage(Component.literal(
                         "§cThis pit already has a leader."));
                 return;

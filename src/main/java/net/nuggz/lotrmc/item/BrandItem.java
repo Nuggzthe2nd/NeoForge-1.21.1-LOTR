@@ -85,9 +85,9 @@ public class BrandItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        var level = orc.level();
+        var level = (net.minecraft.server.level.ServerLevel) orc.level();
         if (level.getBlockEntity(orc.getPitPos()) instanceof MudpitBlockEntity pit
-                && pit.hasLeader()) {
+                && pit.hasLivingLeader(level)) {
             player.sendSystemMessage(Component.literal(
                     "§cThis pit already has a leader. "
                             + "The current leader must die before a new one can be branded."));

@@ -3,6 +3,7 @@ package net.nuggz.lotrmc.entity;
 import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
@@ -17,7 +18,6 @@ import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
@@ -126,15 +126,13 @@ public class OrcEntity extends Monster implements GeoEntity {
     }
 
     private void applyScarModifiers() {
+        UUID modId = new UUID(getUUID().getMostSignificantBits(), scarCount);
+
         getAttribute(Attributes.MAX_HEALTH).addPermanentModifier(
-                new AttributeModifier(
-                        ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_health_" + scarCount),
-                        SCAR_HEALTH_BONUS, AttributeModifier.Operation.ADD_VALUE));
+                new AttributeModifier(ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_health_" + scarCount), SCAR_HEALTH_BONUS, AttributeModifier.Operation.ADD_VALUE));
 
         getAttribute(Attributes.ATTACK_DAMAGE).addPermanentModifier(
-                new AttributeModifier(
-                        ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_damage_" + scarCount),
-                        SCAR_DAMAGE_BONUS, AttributeModifier.Operation.ADD_VALUE));
+                new AttributeModifier(ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_damage_" + scarCount), SCAR_DAMAGE_BONUS, AttributeModifier.Operation.ADD_VALUE));
 
         this.setHealth(this.getMaxHealth());
     }
@@ -146,9 +144,10 @@ public class OrcEntity extends Monster implements GeoEntity {
     @Override
     public void die(net.minecraft.world.damagesource.DamageSource source) {
         super.die(source);
-        if (isLeader && pitPos != null && level() instanceof ServerLevel serverLevel) {
+        if (pitPos != null && level() instanceof ServerLevel serverLevel) {
             if (serverLevel.getBlockEntity(pitPos) instanceof MudpitBlockEntity pit) {
-                pit.clearLeader();
+                pit.untrackOrc(getUUID());
+                if (isLeader) pit.clearLeader();
             }
         }
     }

@@ -156,11 +156,13 @@ public class ArmorSetQueue {
      * whatever was already queued.
      */
     private void reassemble() {
-        // Keep sets that were assembled from earlier addItem() calls
-        List<ArmorSet> preserved = new ArrayList<>(assembledQueue);
+        // Dissolve previously assembled sets back into the buckets so their pieces
+        // can be combined with any newly added items into fuller sets.
+        for (ArmorSet set : assembledQueue) {
+            dissolveIntoBuffers(set);
+        }
         assembledQueue.clear();
 
-        // Collect material keys that still have items waiting in the buckets
         Set<String> allMaterials = new LinkedHashSet<>();
         allMaterials.addAll(helmetsByMaterial.keySet());
         allMaterials.addAll(chestsByMaterial.keySet());
@@ -189,26 +191,42 @@ public class ArmorSetQueue {
             }
         }
 
-        // Assign unmatched weapons to any set (preserved or fresh) that has none
-        Deque<ItemStack> unmatched = new ArrayDeque<>(unmatchedWeapons);
-        for (ArmorSet set : preserved) {
-            if (set.weapon.isEmpty() && !unmatched.isEmpty()) set.weapon = unmatched.poll();
-        }
+        // Assign unmatched weapons to sets that have none
         for (ArmorSet set : fresh) {
-            if (set.weapon.isEmpty() && !unmatched.isEmpty()) set.weapon = unmatched.poll();
+            if (set.weapon.isEmpty() && !unmatchedWeapons.isEmpty()) set.weapon = unmatchedWeapons.poll();
         }
-        while (!unmatched.isEmpty()) {
+        while (!unmatchedWeapons.isEmpty()) {
             ArmorSet set = new ArmorSet();
-            set.weapon = unmatched.poll();
+            set.weapon = unmatchedWeapons.poll();
             fresh.add(set);
         }
 
-        // Merge and sort: most pieces first
-        List<ArmorSet> all = new ArrayList<>(preserved.size() + fresh.size());
-        all.addAll(preserved);
-        all.addAll(fresh);
-        all.sort(Comparator.comparingInt(ArmorSet::pieceCount).reversed());
-        assembledQueue.addAll(all);
+        fresh.sort(Comparator.comparingInt(ArmorSet::pieceCount).reversed());
+        assembledQueue.addAll(fresh);
+    }
+
+    private void dissolveIntoBuffers(ArmorSet set) {
+        if (!set.helmet.isEmpty()) {
+            String mat = getMaterialKey(set.helmet);
+            if (mat != null) helmetsByMaterial.computeIfAbsent(mat, k -> new ArrayDeque<>()).add(set.helmet);
+        }
+        if (!set.chestplate.isEmpty()) {
+            String mat = getMaterialKey(set.chestplate);
+            if (mat != null) chestsByMaterial.computeIfAbsent(mat, k -> new ArrayDeque<>()).add(set.chestplate);
+        }
+        if (!set.leggings.isEmpty()) {
+            String mat = getMaterialKey(set.leggings);
+            if (mat != null) legsByMaterial.computeIfAbsent(mat, k -> new ArrayDeque<>()).add(set.leggings);
+        }
+        if (!set.boots.isEmpty()) {
+            String mat = getMaterialKey(set.boots);
+            if (mat != null) bootsByMaterial.computeIfAbsent(mat, k -> new ArrayDeque<>()).add(set.boots);
+        }
+        if (!set.weapon.isEmpty()) {
+            String mat = getMaterialKey(set.weapon);
+            if (mat != null) weaponsByMaterial.computeIfAbsent(mat, k -> new ArrayDeque<>()).add(set.weapon);
+            else unmatchedWeapons.add(set.weapon);
+        }
     }
 
     // -------------------------------------------------------------------------
