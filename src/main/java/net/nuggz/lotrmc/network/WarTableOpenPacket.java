@@ -17,6 +17,7 @@ import net.nuggz.lotrmc.client.screen.WarTableScreen;
 import net.nuggz.lotrmc.entity.OrcEntity;
 import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
 import net.nuggz.lotrmc.warmap.*;
+import net.nuggz.lotrmc.warmap.RaidManager;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
 
 import java.util.*;
@@ -129,6 +130,8 @@ public record WarTableOpenPacket(
 
         List<WarTableData.OrcEntry> orcs = new ArrayList<>();
         int orcNumber = 1;
+
+        // Live orcs at the pit
         for (UUID orcUUID : pit.getTrackedOrcUUIDs()) {
             var entity = level.getEntity(orcUUID);
             if (!(entity instanceof OrcEntity orc)) continue;
@@ -136,6 +139,26 @@ public record WarTableOpenPacket(
                     ? orc.getCustomName().getString() : "Orc #" + orcNumber;
             orcs.add(new WarTableData.OrcEntry(orcUUID, name, orc.getScarCount(), orc.isLeader()));
             orcNumber++;
+        }
+
+        // Orcs on a raid — show from snapshots so pit card stays populated
+        // Match by pitPos since RaidParty now stores exact block position
+        if (pit.isRaiding()) {
+            RaidManager raids = RaidManager.get(level);
+            for (net.nuggz.lotrmc.warmap.RaidParty party : raids.getActiveRaids()) {
+                if (!party.pitPos.equals(pit.getBlockPos())) continue;
+                for (net.nuggz.lotrmc.warmap.RaidOrcSnapshot snap
+                        : raids.getSnapshotsForParty(party.partyId)) {
+                    String name = snap.customName != null
+                            ? snap.customName : "Orc #" + orcNumber;
+                    orcs.add(new WarTableData.OrcEntry(
+                            snap.originalUUID,
+                            name + " §8(raiding)",
+                            snap.scarCount,
+                            snap.isLeader));
+                    orcNumber++;
+                }
+            }
         }
 
         orcs.sort((a, b) -> {

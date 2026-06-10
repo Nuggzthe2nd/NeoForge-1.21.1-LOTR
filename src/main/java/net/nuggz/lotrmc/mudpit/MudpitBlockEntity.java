@@ -98,6 +98,17 @@ public class MudpitBlockEntity extends BlockEntity {
     // Orc tracking — UUIDs of all living orcs spawned from this pit
     private final Set<UUID> trackedOrcs = new HashSet<>();
 
+
+
+    // UUIDs of orcs currently on a raid (subset of trackedOrcs)
+    // Kept in trackedOrcs so population cap accounts for them naturally
+    private final Set<UUID> raidingOrcs = new HashSet<>();
+
+    public void markOrcRaiding(UUID uuid)   { raidingOrcs.add(uuid);    setChanged(); }
+    public void unmarkOrcRaiding(UUID uuid) { raidingOrcs.remove(uuid); setChanged(); }
+    public Set<UUID> getRaidingOrcUUIDs()   { return Collections.unmodifiableSet(raidingOrcs); }
+    public boolean isOrcRaiding(UUID uuid)  { return raidingOrcs.contains(uuid); }
+
     // Raid state
     private boolean raiding = false;
 
@@ -304,7 +315,7 @@ public class MudpitBlockEntity extends BlockEntity {
             for (int dz = -radius; dz <= radius; dz++) {
                 if (Math.abs(dx) == radius && Math.abs(dz) == radius) continue;
 
-                // Water layers are ABOVE the core block (core is at floor, water at core+1..core+(depth-3))
+                // Scan upward from core — water sits above the core block (positive Y)
                 for (int dy = 1; dy <= depth - 3; dy++) {
                     BlockPos pos = corePos.offset(dx, dy, dz);
                     net.minecraft.world.level.block.state.BlockState current =
@@ -366,6 +377,7 @@ public class MudpitBlockEntity extends BlockEntity {
     }
     public void untrackOrc(UUID uuid) {
         trackedOrcs.remove(uuid);
+        raidingOrcs.remove(uuid); // ← add this line
         setChanged();
     }
     public Set<UUID> getTrackedOrcUUIDs() { return Collections.unmodifiableSet(trackedOrcs); }
@@ -430,8 +442,17 @@ public class MudpitBlockEntity extends BlockEntity {
             orcList.add(orcTag);
         }
         tag.put("TrackedOrcs", orcList);
+        net.minecraft.nbt.ListTag raidingList = new net.minecraft.nbt.ListTag();
+        for (UUID uuid : raidingOrcs) {
+            net.minecraft.nbt.CompoundTag rt = new net.minecraft.nbt.CompoundTag();
+            rt.putUUID("UUID", uuid);
+            raidingList.add(rt);
+        }
+        tag.put("RaidingOrcs", raidingList);
         tag.putBoolean("LastAtCap", lastAtCap);
         tag.put("ArmorQueue", armorQueue.save(provider));
+
+
     }
 
     @Override
@@ -455,5 +476,10 @@ public class MudpitBlockEntity extends BlockEntity {
         }
         lastAtCap  = tag.getBoolean("LastAtCap");
         armorQueue = ArmorSetQueue.load(provider, tag.getCompound("ArmorQueue"));
+        net.minecraft.nbt.ListTag raidingList = tag.getList("RaidingOrcs", net.minecraft.nbt.Tag.TAG_COMPOUND);
+        raidingOrcs.clear();
+        for (int i = 0; i < raidingList.size(); i++) {
+            raidingOrcs.add(raidingList.getCompound(i).getUUID("UUID"));
+        }
     }
 }

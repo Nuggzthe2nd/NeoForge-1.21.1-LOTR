@@ -120,14 +120,37 @@ public class OrcEntity extends Monster implements GeoEntity {
     public int addScars(int count) {
         int added = Math.min(count, MAX_SCARS - scarCount);
         if (added <= 0) return 0;
-        for (int i = 0; i < added; i++) applyScarModifiers();
-        scarCount += added;
+        for (int i = 0; i < added; i++) {
+            applyScarModifiers();
+            scarCount++;
+        }
         return added;
     }
 
-    private void applyScarModifiers() {
-        UUID modId = new UUID(getUUID().getMostSignificantBits(), scarCount);
+    /**
+     * Directly restore a scar count from a snapshot without re-applying
+     * attribute modifiers (they'll be applied fresh via addScars).
+     * Called when an orc returns from a raid.
+     */
+    public void restoreScarCount(int count) {
+        this.scarCount = 0; // reset so addScars applies modifiers correctly
+        if (count > 0) addScars(count);
+    }
 
+    /**
+     * Restore full leader state from a snapshot.
+     * Used when a leader orc returns from a raid.
+     */
+    public void restoreLeaderState(String name, OrcLeaderData data) {
+        this.isLeader   = true;
+        this.leaderData = data;
+        if (name != null) {
+            this.setCustomName(net.minecraft.network.chat.Component.literal(name));
+            this.setCustomNameVisible(true);
+        }
+    }
+
+    private void applyScarModifiers() {
         getAttribute(Attributes.MAX_HEALTH).addPermanentModifier(
                 new AttributeModifier(ResourceLocation.fromNamespaceAndPath("lotrmc", "scar_health_" + scarCount), SCAR_HEALTH_BONUS, AttributeModifier.Operation.ADD_VALUE));
 

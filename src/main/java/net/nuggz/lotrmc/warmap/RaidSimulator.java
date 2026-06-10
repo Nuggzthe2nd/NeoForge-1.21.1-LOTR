@@ -29,14 +29,11 @@ import java.util.*;
  */
 public class RaidSimulator {
 
-    // Stored results — partyId → result, held until party returns
-    private static final Map<UUID, RaidResult> storedResults = new HashMap<>();
-
     // -------------------------------------------------------------------------
     // Main simulation entry point
     // -------------------------------------------------------------------------
 
-    public static void simulate(ServerLevel level, RaidParty party) {
+    public static RaidManager.StoredResult simulate(ServerLevel level, RaidParty party) {
         Random rng = new Random(party.partyId.getMostSignificantBits()
                 ^ level.getGameTime());
 
@@ -44,7 +41,7 @@ public class RaidSimulator {
         float partyPower = calculatePartyPower(party);
 
         // Calculate target difficulty
-        float targetDifficulty = calculateTargetDifficulty(party, level);
+        float targetDifficulty = calculateTargetDifficulty(party, level, rng);
 
         // Power ratio — >1.0 means we outmatch the target
         float ratio = partyPower / Math.max(targetDifficulty, 0.1f);
@@ -76,7 +73,7 @@ public class RaidSimulator {
         RaidResult result = new RaidResult(
                 survivors, casualties, scarGains, loot, narrative, ratio);
 
-        storedResults.put(party.partyId, result);
+        return new RaidManager.StoredResult(result);
     }
 
     // -------------------------------------------------------------------------
@@ -98,9 +95,9 @@ public class RaidSimulator {
         return base * strengthMult * scarBonus * presenceBonus;
     }
 
-    private static float calculateTargetDifficulty(RaidParty party, ServerLevel level) {
+    private static float calculateTargetDifficulty(RaidParty party, ServerLevel level, Random rng) {
         return switch (party.targetType) {
-            case FREE_TARGET -> 15.0f + (float)(Math.random() * 10); // wilderness, low risk
+            case FREE_TARGET -> 15.0f + rng.nextFloat() * 10; // wilderness, low risk
             case POI -> {
                 // Difficulty based on POI label
                 String label = party.targetLabel != null
@@ -227,10 +224,7 @@ public class RaidSimulator {
                     .append(casualties > 1 ? "s" : "").append(" fell.");
         }
         if (survivors > 0) {
-            sb.append(" ").append(survivors).append(" returned");
-            long scarred = 0; // approximate
-            if (scarred > 0) sb.append(", bearing new scars");
-            sb.append(".");
+            sb.append(" ").append(survivors).append(" returned.");
         } else {
             sb.append(" None survived.");
         }
@@ -248,17 +242,7 @@ public class RaidSimulator {
         return sb.toString();
     }
 
-    // -------------------------------------------------------------------------
-    // Result storage
-    // -------------------------------------------------------------------------
 
-    public static RaidResult getStoredResult(UUID partyId) {
-        return storedResults.getOrDefault(partyId, RaidResult.EMPTY);
-    }
-
-    public static void clearStoredResult(UUID partyId) {
-        storedResults.remove(partyId);
-    }
 
     // -------------------------------------------------------------------------
     // RaidResult

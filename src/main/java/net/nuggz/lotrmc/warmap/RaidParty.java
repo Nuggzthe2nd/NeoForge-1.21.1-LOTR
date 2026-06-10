@@ -32,7 +32,7 @@ public class RaidParty {
 
     // Identity
     public final UUID partyId;
-    public final int pitIndex;          // which pit this party came from
+    public final net.minecraft.core.BlockPos pitPos; // exact pit block position
     public final List<UUID> orcUUIDs;   // orcs in this party (may have died)
 
     // Leader snapshot — stored so simulation works even if leader entity is gone
@@ -61,7 +61,7 @@ public class RaidParty {
     // Mutable state
     public RaidState state;
 
-    public RaidParty(UUID partyId, int pitIndex, List<UUID> orcUUIDs,
+    public RaidParty(UUID partyId, net.minecraft.core.BlockPos pitPos, List<UUID> orcUUIDs,
                      String leaderName, int leaderStrength, int leaderTactics,
                      int leaderPresence, int partyScarTotal,
                      int targetChunkX, int targetChunkZ,
@@ -70,7 +70,7 @@ public class RaidParty {
                      long departureTime, long arrivalTime,
                      long returnTime, long completionTime) {
         this.partyId        = partyId;
-        this.pitIndex       = pitIndex;
+        this.pitPos         = pitPos;
         this.orcUUIDs       = new ArrayList<>(orcUUIDs);
         this.leaderName     = leaderName;
         this.leaderStrength = leaderStrength;
@@ -131,8 +131,9 @@ public class RaidParty {
     public float[] getInterpolatedPosition(long currentTick) {
         switch (state) {
             case OUTBOUND -> {
-                float t = (float)(currentTick - departureTime)
-                        / (float)(arrivalTime - departureTime);
+                long span = arrivalTime - departureTime;
+                float t = span == 0 ? 1f
+                        : (float)(currentTick - departureTime) / (float) span;
                 t = Math.max(0, Math.min(1, t));
                 return new float[] {
                         originChunkX + (targetChunkX - originChunkX) * t,
@@ -143,8 +144,9 @@ public class RaidParty {
                 return new float[] { targetChunkX, targetChunkZ };
             }
             case RETURNING -> {
-                float t = (float)(currentTick - returnTime)
-                        / (float)(completionTime - returnTime);
+                long span = completionTime - returnTime;
+                float t = span == 0 ? 1f
+                        : (float)(currentTick - returnTime) / (float) span;
                 t = Math.max(0, Math.min(1, t));
                 return new float[] {
                         targetChunkX + (originChunkX - targetChunkX) * t,
@@ -162,7 +164,7 @@ public class RaidParty {
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putUUID("PartyId",        partyId);
-        tag.putInt("PitIndex",        pitIndex);
+        tag.putLong("PitPos",         pitPos.asLong());
         tag.putString("LeaderName",   leaderName != null ? leaderName : "");
         tag.putInt("LeaderStrength",  leaderStrength);
         tag.putInt("LeaderTactics",   leaderTactics);
@@ -203,7 +205,7 @@ public class RaidParty {
 
         RaidParty party = new RaidParty(
                 tag.getUUID("PartyId"),
-                tag.getInt("PitIndex"),
+                net.minecraft.core.BlockPos.of(tag.getLong("PitPos")),
                 orcs,
                 tag.getString("LeaderName"),
                 tag.getInt("LeaderStrength"),
@@ -234,7 +236,7 @@ public class RaidParty {
 
     public void encode(FriendlyByteBuf buf) {
         buf.writeUUID(partyId);
-        buf.writeInt(pitIndex);
+        buf.writeLong(pitPos.asLong());
         buf.writeUtf(leaderName != null ? leaderName : "");
         buf.writeInt(targetChunkX);
         buf.writeInt(targetChunkZ);
@@ -252,13 +254,13 @@ public class RaidParty {
 
     public static RaidParty decode(FriendlyByteBuf buf) {
         UUID partyId     = buf.readUUID();
-        int pitIndex     = buf.readInt();
+        net.minecraft.core.BlockPos pitPos = net.minecraft.core.BlockPos.of(buf.readLong());
         String leader    = buf.readUtf();
         int targetX      = buf.readInt();
         int targetZ      = buf.readInt();
         TargetType type;
         try { type = TargetType.valueOf(buf.readUtf()); }
-        catch (Exception e) { buf.readUtf(); type = TargetType.FREE_TARGET; }
+        catch (Exception e) { type = TargetType.FREE_TARGET; }
         String label     = buf.readUtf();
         int originX      = buf.readInt();
         int originZ      = buf.readInt();
@@ -274,7 +276,7 @@ public class RaidParty {
         for (int i = 0; i < orcCount; i++) orcs.add(UUID.randomUUID());
 
         RaidParty party = new RaidParty(
-                partyId, pitIndex, orcs, leader, 0, 0, 0, 0,
+                partyId, pitPos, orcs, leader, 0, 0, 0, 0,
                 targetX, targetZ, type, label,
                 originX, originZ,
                 departure, arrival, returnTime, completion
