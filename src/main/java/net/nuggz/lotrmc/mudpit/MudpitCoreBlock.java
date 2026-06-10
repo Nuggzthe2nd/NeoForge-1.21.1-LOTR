@@ -80,30 +80,35 @@ public class MudpitCoreBlock extends BaseEntityBlock {
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos,
                                                Player player, BlockHitResult hit) {
-        if (level.isClientSide()) return InteractionResult.SUCCESS;
         if (!(level.getBlockEntity(pos) instanceof MudpitBlockEntity pit))
             return InteractionResult.PASS;
 
-        player.sendSystemMessage(Component.literal(
-                "§6Biomass: §f" + pit.getBiomass()
-                        + "  §6Capacity: §f" + pit.getCapacity()));
+        if (level.isClientSide()) return InteractionResult.SUCCESS;
 
-        if (pit.isGestating()) {
-            int ticksLeft = pit.getGestationTicksRemaining();
-            int minutes   = ticksLeft / 1200;
-            int seconds   = (ticksLeft % 1200) / 20;
-            String timeStr = minutes > 0
-                    ? minutes + "m " + seconds + "s"
-                    : seconds + "s";
-            player.sendSystemMessage(Component.literal(
-                    "§6Gestating: §f" + pit.getPendingUnits() + " orc(s)"
-                            + "  §6Progress: §f" + pit.getGestationPercent()
-                            + "% §7(" + timeStr + " remaining)"));
-        } else {
-            player.sendSystemMessage(Component.literal(
-                    "§7Idle — throw meat to begin gestation."));
+        net.minecraft.server.level.ServerPlayer serverPlayer =
+                (net.minecraft.server.level.ServerPlayer) player;
+
+        // Shift+right-click → show biomass debug info
+        if (player.isShiftKeyDown()) {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "§6Biomass: §f" + pit.getBiomass()
+                            + "  §6Capacity: §f" + pit.getCapacity()));
+            if (pit.isGestating()) {
+                int ticksLeft = pit.getGestationTicksRemaining();
+                int minutes = ticksLeft / 1200;
+                int seconds = (ticksLeft % 1200) / 20;
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "§6Gestating: §f" + pit.getPendingUnits() + " orc(s) §7("
+                                + (minutes > 0 ? minutes + "m " : "") + seconds + "s remaining)"));
+            } else {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "§7Idle — throw meat to begin gestation."));
+            }
+            return InteractionResult.SUCCESS;
         }
 
+        // Normal right-click → open Squad Orders screen
+        net.nuggz.lotrmc.network.OpenSquadOrdersPacket.send(serverPlayer, pit);
         return InteractionResult.SUCCESS;
     }
 

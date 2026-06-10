@@ -170,7 +170,7 @@ public record WarTableOpenPacket(
         return new WarTableData.PitEntry(
                 index, pit.getCapacity(), pit.getBiomass(),
                 pit.isGestating(), pit.getGestationPercent(),
-                pit.isRaiding(), pit.getDefaultOrder(),
+                pit.isRaiding(), pit.getSquadOrders().getDisplayName(),
                 leaderName, str, tac, pre,
                 pit.getMaxPopulation(), orcs);
     }

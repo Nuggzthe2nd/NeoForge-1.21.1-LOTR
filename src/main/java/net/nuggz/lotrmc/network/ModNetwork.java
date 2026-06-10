@@ -27,6 +27,21 @@ public class ModNetwork {
                 RaidStartPacket.STREAM_CODEC,
                 RaidStartPacket::handle);
 
+        registrar.playToServer(
+                SetSquadOrderPacket.TYPE,
+                SetSquadOrderPacket.STREAM_CODEC,
+                SetSquadOrderPacket::handle);
+
+        registrar.playToServer(
+                SetWaypointPacket.TYPE,
+                SetWaypointPacket.STREAM_CODEC,
+                SetWaypointPacket::handle);
+
+        registrar.playToServer(
+                SetGuardCenterPacket.TYPE,
+                SetGuardCenterPacket.STREAM_CODEC,
+                SetGuardCenterPacket::handle);
+
         // Server → Client
         registrar.playToClient(
                 WarTableOpenPacket.TYPE,
@@ -42,6 +57,11 @@ public class ModNetwork {
                 RaidResultPacket.TYPE,
                 RaidResultPacket.STREAM_CODEC,
                 RaidResultPacket::handle);
+
+        registrar.playToClient(
+                OpenSquadOrdersPacket.TYPE,
+                OpenSquadOrdersPacket.STREAM_CODEC,
+                OpenSquadOrdersPacket::handle);
     }
 
     public static void openWarTable(ServerPlayer player, BlockPos pos) {

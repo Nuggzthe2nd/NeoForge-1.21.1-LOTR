@@ -12,6 +12,10 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.*;
+import net.nuggz.lotrmc.entity.ai.GuardPitGoal;
+import net.nuggz.lotrmc.entity.ai.GuardAreaGoal;
+import net.nuggz.lotrmc.entity.ai.PatrolGoal;
+import net.nuggz.lotrmc.entity.ai.ReturnToPitGoal;
 import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.animal.IronGolem;
@@ -120,10 +124,8 @@ public class OrcEntity extends Monster implements GeoEntity {
     public int addScars(int count) {
         int added = Math.min(count, MAX_SCARS - scarCount);
         if (added <= 0) return 0;
-        for (int i = 0; i < added; i++) {
-            applyScarModifiers();
-            scarCount++;
-        }
+        for (int i = 0; i < added; i++) applyScarModifiers();
+        scarCount += added;
         return added;
     }
 
@@ -204,7 +206,11 @@ public class OrcEntity extends Monster implements GeoEntity {
     @Override
     protected void registerGoals() {
         goalSelector.addGoal(0, new FloatGoal(this));
+        goalSelector.addGoal(1, new ReturnToPitGoal(this));  // highest — overrides all
         goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.0, false));
+        goalSelector.addGoal(3, new GuardPitGoal(this));
+        goalSelector.addGoal(3, new GuardAreaGoal(this));
+        goalSelector.addGoal(3, new PatrolGoal(this));
         goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.8));
         goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0f));
         goalSelector.addGoal(7, new RandomLookAroundGoal(this));
