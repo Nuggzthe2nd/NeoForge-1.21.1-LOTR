@@ -1,9 +1,13 @@
 package net.nuggz.lotrmc.worlddata;
 
 import net.nuggz.lotrmc.world.MudlandsTerrainReplacer;
+import net.nuggz.lotrmc.warmap.FogOfWarManager;
+import net.nuggz.lotrmc.warmap.FogOfWarManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.List;
@@ -39,6 +43,7 @@ public class MudlandsManager {
 
         data.setSauron(playerUUID, ritualPos);
         convertRadius(level, data, playerUUID, new ChunkPos(ritualPos), data.getSauronRadius());
+        FogOfWarManager.onSauronInitiated(level);
     }
 
     // -------------------------------------------------------------------------
@@ -58,6 +63,7 @@ public class MudlandsManager {
 
         // Only convert the new outermost ring
         convertRing(level, data, data.getSauronUUID(), origin, newRadius);
+        FogOfWarManager.onSauronExpanded(level, origin, newRadius);
     }
 
     /**

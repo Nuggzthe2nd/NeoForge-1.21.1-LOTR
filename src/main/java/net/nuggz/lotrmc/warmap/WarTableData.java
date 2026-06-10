@@ -1,4 +1,4 @@
-package net.nuggz.lotrmc.wartable;
+package net.nuggz.lotrmc.warmap;
 
 import net.minecraft.network.FriendlyByteBuf;
 

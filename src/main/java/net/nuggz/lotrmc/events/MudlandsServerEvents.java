@@ -1,11 +1,11 @@
 package net.nuggz.lotrmc.events;
 
-import net.nuggz.lotrmc.LotrMC;
 import net.nuggz.lotrmc.worlddata.MudlandsManager;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.nuggz.lotrmc.LotrMC;
 
 @EventBusSubscriber(modid = LotrMC.MODID)
 public class MudlandsServerEvents {
@@ -20,5 +20,6 @@ public class MudlandsServerEvents {
         if (!level.dimension().equals(ServerLevel.OVERWORLD)) return;
 
         MudlandsManager.tickCollapse(level);
+        net.nuggz.lotrmc.warmap.RaidManager.get(level).tickRaids(level);
     }
 }

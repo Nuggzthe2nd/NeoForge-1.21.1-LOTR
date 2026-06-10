@@ -2,36 +2,42 @@ package net.nuggz.lotrmc.network;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.nuggz.lotrmc.client.WarTableMapRenderer;
 import net.nuggz.lotrmc.client.screen.WarTableScreen;
-import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
 import net.nuggz.lotrmc.entity.OrcEntity;
-import net.nuggz.lotrmc.wartable.WarTableData;
-import net.nuggz.lotrmc.wartable.WarTableData.PitEntry;
-import net.nuggz.lotrmc.wartable.WarTableData.OrcEntry;
+import net.nuggz.lotrmc.mudpit.MudpitBlockEntity;
+import net.nuggz.lotrmc.warmap.*;
 import net.nuggz.lotrmc.worlddata.MudlandsChunkData;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Server → Client: opens the War Table screen.
  *
- * Built on the server by querying MudlandsChunkData and all MudpitBlockEntities,
- * then sent to the requesting player. The client receives a WarTableData snapshot
- * and opens WarTableScreen with it.
+ * Now also sends:
+ *   - Initial map data for discovered chunks in the starting viewport
+ *   - Discovered chunk set (fog of war state)
+ *   - Active raid parties
+ *   - Mudlands origin chunk for centering the map
  */
-public record WarTableOpenPacket(WarTableData data) implements CustomPacketPayload {
+public record WarTableOpenPacket(
+        WarTableData tableData,
+        List<ChunkMapEntry> initialMapChunks,
+        Set<Long> discoveredChunks,
+        List<RaidParty> activeRaids,
+        int mudlandsOriginChunkX,
+        int mudlandsOriginChunkZ
+) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<WarTableOpenPacket> TYPE =
             new CustomPacketPayload.Type<>(
@@ -39,51 +45,79 @@ public record WarTableOpenPacket(WarTableData data) implements CustomPacketPaylo
 
     public static final net.minecraft.network.codec.StreamCodec<FriendlyByteBuf, WarTableOpenPacket> STREAM_CODEC =
             net.minecraft.network.codec.StreamCodec.of(
-                    (buf, pkt) -> pkt.data().encode(buf),
-                    buf -> new WarTableOpenPacket(WarTableData.decode(buf)));
+                    (buf, pkt) -> pkt.encode(buf),
+                    WarTableOpenPacket::decode);
 
     @Override
     public CustomPacketPayload.Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     // -------------------------------------------------------------------------
-    // Server-side builder — collects all pit data into a WarTableData snapshot
+    // Server-side builder
     // -------------------------------------------------------------------------
 
     public static void send(ServerPlayer player, BlockPos warTablePos) {
-        ServerLevel level = player.serverLevel();
-        MudlandsChunkData mudData = MudlandsChunkData.get(level);
+        ServerLevel level     = player.serverLevel();
+        MudlandsChunkData mud = MudlandsChunkData.get(level);
+        WarMapCache mapCache  = WarMapCache.get(level);
+        RaidManager raids     = RaidManager.get(level);
 
-        List<PitEntry> entries = new ArrayList<>();
+        // Build pit entries
+        List<WarTableData.PitEntry> entries = new ArrayList<>();
         int pitIndex = 0;
-
-        // Iterate all converted chunks and find mudpit block entities
-        for (long packedChunk : mudData.getAllConvertedChunkPositions()) {
-            net.minecraft.world.level.ChunkPos chunkPos =
-                    new net.minecraft.world.level.ChunkPos(packedChunk);
-
-            net.minecraft.world.level.chunk.LevelChunk chunk =
-                    level.getChunk(chunkPos.x, chunkPos.z);
-
+        for (long packed : mud.getAllConvertedChunkPositions()) {
+            net.minecraft.world.level.ChunkPos cp =
+                    new net.minecraft.world.level.ChunkPos(packed);
+            var chunk = level.getChunk(cp.x, cp.z);
             for (BlockEntity be : chunk.getBlockEntities().values()) {
                 if (!(be instanceof MudpitBlockEntity pit)) continue;
-
                 entries.add(buildPitEntry(level, pit, pitIndex++));
             }
         }
 
-        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
-                player, new WarTableOpenPacket(new WarTableData(entries)));
+        // Get mudlands origin
+        BlockPos origin = mud.getSauronOrigin();
+        int originCX = 0, originCZ = 0;
+        if (origin != null) {
+            net.minecraft.world.level.ChunkPos originChunk =
+                    new net.minecraft.world.level.ChunkPos(origin);
+            originCX = originChunk.x;
+            originCZ = originChunk.z;
+        }
+
+        // Get initial map chunks for the starting viewport
+        int vpOriginX = originCX - WarTableMapRenderer.VIEWPORT_CHUNKS / 2;
+        int vpOriginZ = originCZ - WarTableMapRenderer.VIEWPORT_CHUNKS / 2;
+        List<long[]> viewportChunks = new ArrayList<>();
+        for (int vx = 0; vx < WarTableMapRenderer.VIEWPORT_CHUNKS; vx++) {
+            for (int vz = 0; vz < WarTableMapRenderer.VIEWPORT_CHUNKS; vz++) {
+                viewportChunks.add(new long[]{ vpOriginX + vx, vpOriginZ + vz });
+            }
+        }
+        List<ChunkMapEntry> initialChunks =
+                mapCache.getOrScanBatch(level, viewportChunks, mud);
+
+        PacketDistributor.sendToPlayer(player, new WarTableOpenPacket(
+                new WarTableData(entries),
+                initialChunks,
+                mapCache.getDiscoveredChunks(),
+                raids.getActiveRaidsList(),
+                originCX, originCZ
+        ));
     }
 
-    private static PitEntry buildPitEntry(ServerLevel level,
-                                          MudpitBlockEntity pit, int index) {
-        // Leader data
+    // -------------------------------------------------------------------------
+    // Pit entry builder (unchanged from before)
+    // -------------------------------------------------------------------------
+
+    private static WarTableData.PitEntry buildPitEntry(ServerLevel level,
+                                                       MudpitBlockEntity pit,
+                                                       int index) {
         String leaderName = null;
         int str = 0, tac = 0, pre = 0;
         UUID leaderUUID = pit.getLeaderUUID();
 
         if (leaderUUID != null) {
-            Entity entity = level.getEntity(leaderUUID);
+            var entity = level.getEntity(leaderUUID);
             if (entity instanceof OrcEntity orc && orc.getLeaderData() != null) {
                 leaderName = orc.getCustomName() != null
                         ? orc.getCustomName().getString() : "Unknown";
@@ -93,50 +127,93 @@ public record WarTableOpenPacket(WarTableData data) implements CustomPacketPaylo
             }
         }
 
-        // Orc list
-        List<OrcEntry> orcs = new ArrayList<>();
+        List<WarTableData.OrcEntry> orcs = new ArrayList<>();
         int orcNumber = 1;
         for (UUID orcUUID : pit.getTrackedOrcUUIDs()) {
-            Entity entity = level.getEntity(orcUUID);
+            var entity = level.getEntity(orcUUID);
             if (!(entity instanceof OrcEntity orc)) continue;
-
             String name = orc.getCustomName() != null
-                    ? orc.getCustomName().getString()
-                    : "Orc #" + orcNumber;
-            orcs.add(new OrcEntry(orcUUID, name, orc.getScarCount(), orc.isLeader()));
+                    ? orc.getCustomName().getString() : "Orc #" + orcNumber;
+            orcs.add(new WarTableData.OrcEntry(orcUUID, name, orc.getScarCount(), orc.isLeader()));
             orcNumber++;
         }
 
-        // Sort: leader first, then by scar count descending
         orcs.sort((a, b) -> {
             if (a.isLeader) return -1;
             if (b.isLeader) return 1;
             return Integer.compare(b.scarCount, a.scarCount);
         });
 
-        return new PitEntry(
-                index,
-                pit.getCapacity(),
-                pit.getBiomass(),
-                pit.isGestating(),
-                pit.getGestationPercent(),
-                pit.isRaiding(),
-                pit.getDefaultOrder(),
+        return new WarTableData.PitEntry(
+                index, pit.getCapacity(), pit.getBiomass(),
+                pit.isGestating(), pit.getGestationPercent(),
+                pit.isRaiding(), pit.getDefaultOrder(),
                 leaderName, str, tac, pre,
-                pit.getMaxPopulation(),
-                orcs);
+                pit.getMaxPopulation(), orcs);
     }
 
     // -------------------------------------------------------------------------
-    // Client-side handler
+    // Encoding
+    // -------------------------------------------------------------------------
+
+    public void encode(FriendlyByteBuf buf) {
+        tableData.encode(buf);
+
+        // Initial map chunks
+        buf.writeInt(initialMapChunks.size());
+        for (ChunkMapEntry e : initialMapChunks) e.encode(buf);
+
+        // Discovered chunks
+        buf.writeInt(discoveredChunks.size());
+        for (long packed : discoveredChunks) buf.writeLong(packed);
+
+        // Active raids
+        buf.writeInt(activeRaids.size());
+        for (RaidParty party : activeRaids) party.encode(buf);
+
+        // Origin
+        buf.writeInt(mudlandsOriginChunkX);
+        buf.writeInt(mudlandsOriginChunkZ);
+    }
+
+    public static WarTableOpenPacket decode(FriendlyByteBuf buf) {
+        WarTableData tableData = WarTableData.decode(buf);
+
+        int chunkCount = buf.readInt();
+        List<ChunkMapEntry> chunks = new ArrayList<>();
+        for (int i = 0; i < chunkCount; i++) chunks.add(ChunkMapEntry.decode(buf));
+
+        int discCount = buf.readInt();
+        Set<Long> discovered = new HashSet<>();
+        for (int i = 0; i < discCount; i++) discovered.add(buf.readLong());
+
+        int raidCount = buf.readInt();
+        List<RaidParty> raids = new ArrayList<>();
+        for (int i = 0; i < raidCount; i++) raids.add(RaidParty.decode(buf));
+
+        int ox = buf.readInt();
+        int oz = buf.readInt();
+
+        return new WarTableOpenPacket(tableData, chunks, discovered, raids, ox, oz);
+    }
+
+    // -------------------------------------------------------------------------
+    // Client handling
     // -------------------------------------------------------------------------
 
     public void handle(IPayloadContext ctx) {
-        ctx.enqueueWork(() -> openScreen(data));
+        ctx.enqueueWork(() -> openScreen(this));
     }
 
     @OnlyIn(Dist.CLIENT)
-    private static void openScreen(WarTableData data) {
-        Minecraft.getInstance().setScreen(new WarTableScreen(data));
+    private static void openScreen(WarTableOpenPacket pkt) {
+        WarTableScreen screen = new WarTableScreen(
+                pkt.tableData(),
+                pkt.initialMapChunks(),
+                pkt.discoveredChunks(),
+                pkt.activeRaids(),
+                pkt.mudlandsOriginChunkX(),
+                pkt.mudlandsOriginChunkZ());
+        Minecraft.getInstance().setScreen(screen);
     }
 }

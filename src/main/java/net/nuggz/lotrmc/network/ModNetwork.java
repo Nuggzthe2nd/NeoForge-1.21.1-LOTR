@@ -17,14 +17,33 @@ public class ModNetwork {
                 BrandingPacket.STREAM_CODEC,
                 BrandingPacket::handle);
 
+        registrar.playToServer(
+                MapChunkRequestPacket.TYPE,
+                MapChunkRequestPacket.STREAM_CODEC,
+                MapChunkRequestPacket::handle);
+
+        registrar.playToServer(
+                RaidStartPacket.TYPE,
+                RaidStartPacket.STREAM_CODEC,
+                RaidStartPacket::handle);
+
         // Server → Client
         registrar.playToClient(
                 WarTableOpenPacket.TYPE,
                 WarTableOpenPacket.STREAM_CODEC,
                 WarTableOpenPacket::handle);
+
+        registrar.playToClient(
+                MapChunkResponsePacket.TYPE,
+                MapChunkResponsePacket.STREAM_CODEC,
+                MapChunkResponsePacket::handle);
+
+        registrar.playToClient(
+                RaidResultPacket.TYPE,
+                RaidResultPacket.STREAM_CODEC,
+                RaidResultPacket::handle);
     }
 
-    /** Called from WarTableBlock.useWithoutItem() to open the UI for a player. */
     public static void openWarTable(ServerPlayer player, BlockPos pos) {
         WarTableOpenPacket.send(player, pos);
     }
