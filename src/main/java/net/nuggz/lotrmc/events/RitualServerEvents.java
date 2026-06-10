@@ -30,7 +30,6 @@ public class RitualServerEvents {
 
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        // Only fire once (main hand) and only on the server
         if (event.getHand() != InteractionHand.MAIN_HAND) return;
         if (!(event.getLevel() instanceof ServerLevel level)) return;
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
@@ -39,7 +38,6 @@ public class RitualServerEvents {
         if (!level.getBlockState(pos).is(Blocks.SOUL_SAND)) return;
         if (!event.getItemStack().is(Items.NETHER_STAR)) return;
 
-        // Consume the event so the block doesn't do anything extra
         event.setCanceled(true);
 
         RitualState ritual = RitualState.get(level);
@@ -60,14 +58,12 @@ public class RitualServerEvents {
             return;
         }
 
-        // Always print the full diagnostic so the player knows what is missing
         AltarValidator.DiagnosticResult diag = AltarValidator.diagnose(level, pos);
         for (String line : diag.lines) {
             player.sendSystemMessage(Component.literal(line));
         }
         if (!diag.valid) return;
 
-        // Structure is valid — start the ritual and consume the nether star
         ritual.startRitual(player.getUUID(), pos, level);
         RitualEffects.playStartEffects(level, pos);
 
@@ -125,7 +121,7 @@ public class RitualServerEvents {
     private static void completeRitual(ServerLevel level, RitualState ritual) {
         RitualEffects.applyDayStorm(level, ritual.getAltarCenter(), 4);
 
-        // Capture UUID before completeRitual() wipes the fields
+        // Capture before completeRitual() wipes the fields
         java.util.UUID ritualistUUID = ritual.getRitualistUUID();
 
         // Designate Sauron and spawn the mudlands
@@ -136,12 +132,19 @@ public class RitualServerEvents {
 
         ritual.completeRitual();
 
-        // Notify the ritualist and give the crown
-        ServerPlayer ritualist = level.getServer().getPlayerList().getPlayer(ritualistUUID);
+        // Give the Nethercrown to the ritualist
+        ServerPlayer ritualist = level.getServer()
+                .getPlayerList().getPlayer(ritualistUUID);
         if (ritualist != null) {
+            ItemStack crown = new ItemStack(ModItems.NETHERCROWN.get());
+
+            // Give directly to inventory, drop at feet if full
+            if (!ritualist.getInventory().add(crown)) {
+                ritualist.drop(crown, false);
+            }
+
             ritualist.sendSystemMessage(Component.literal(
                     "§4The Nethercrown is yours. The Mudlands rise."));
-            ritualist.getInventory().add(new ItemStack(ModItems.NETHERCROWN.get()));
         }
     }
 

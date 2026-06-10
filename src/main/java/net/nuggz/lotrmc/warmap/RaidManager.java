@@ -130,6 +130,7 @@ public class RaidManager extends SavedData {
                 case OUTBOUND -> {
                     if (now >= party.arrivalTime) {
                         party.state = RaidParty.RaidState.AT_TARGET;
+                        setDirty();
                         StoredResult result = RaidSimulator.simulate(level, party);
                         storedResults.put(party.partyId, result);
                         setDirty();
@@ -210,6 +211,14 @@ public class RaidManager extends SavedData {
             pit.trackOrc(orc.getUUID());
 
             level.addFreshEntity(orc);
+        }
+
+        // Deliver loot to tribute chest
+        if (stored != null && !stored.loot.isEmpty()) {
+            String source = (party.targetLabel != null && !party.targetLabel.isEmpty())
+                    ? party.targetLabel : "raid";
+            net.nuggz.lotrmc.worlddata.TributeChestManager.deliverLoot(
+                    level, stored.loot, source);
         }
 
         // Notify Sauron
